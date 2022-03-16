@@ -4,9 +4,27 @@ on:
   pull_request:
     branches:
       - "*.x"
+    paths:
+      - .github/workflows/static-analysis.yml
+      - composer.*
+      - lib/**
+      - phpstan.neon.dist
+      - psalm.xml.dist
+      - psalm-strict.xml
+      - static-analysis/**
+      - tests/**
   push:
     branches:
       - "*.x"
+    paths:
+      - .github/workflows/static-analysis.yml
+      - composer.*
+      - lib/**
+      - phpstan.neon.dist
+      - psalm.xml.dist
+      - psalm-strict.xml
+      - static-analysis/**
+      - tests/**
 
 jobs:
   static-analysis-phpstan:
@@ -16,7 +34,7 @@ jobs:
     strategy:
       matrix:
         php-version:
-          - "7.4"
+          - "8.1"
 
     steps:
       - name: "Checkout code"
@@ -42,14 +60,24 @@ jobs:
     strategy:
       matrix:
         php-version:
-          - "7.4"
+          - "8.1"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Psalm
-        uses: docker://vimeo/psalm-github-actions:4.6.4
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
         with:
-          composer_require_dev: true
-          args: --shepherd
+          coverage: none
+          php-version: ${{ matrix.php-version }}
+          tools: cs2pr
+
+      - name: Install dependencies with Composer
+        uses: ramsey/composer-install@v1
+
+      - name: Run static analysis with Vimeo Psalm
+        run: vendor/bin/psalm --shepherd
+
+      - name: Run type inference tests with Vimeo Psalm
+        run: vendor/bin/psalm --config=psalm-strict.xml --shepherd

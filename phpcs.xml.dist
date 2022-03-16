@@ -12,9 +12,11 @@
     <!-- Show progress of the run and show sniff names -->
     <arg value="ps"/>
 
+    <config name="php_version" value="70300"/>
+
     <file>bin</file>
     <file>lib</file>
-    <file>tests</file>
+    <file>tests/Doctrine/Tests</file>
 
     <rule ref="Doctrine">
         <exclude name="SlevomatCodingStandard.TypeHints.DeclareStrictTypes"/>
@@ -35,13 +37,6 @@
     <rule ref="Generic.Classes.DuplicateClassName.Found">
         <exclude-pattern>*/lib/Doctrine/DBAL/Driver/PDOQueryImplementation.php</exclude-pattern>
         <exclude-pattern>*/lib/Doctrine/DBAL/Driver/PDOStatementImplementations.php</exclude-pattern>
-    </rule>
-
-    <!-- Disable the rules that will require PHP 7.4 -->
-    <rule ref="SlevomatCodingStandard.TypeHints.PropertyTypeHint">
-        <properties>
-            <property name="enableNativeTypeHint" value="false"/>
-        </properties>
     </rule>
 
     <rule ref="PSR2.Classes.PropertyDeclaration.Underscore">
@@ -74,10 +69,6 @@
 
     <rule ref="Generic.NamingConventions.UpperCaseConstantName.ClassConstantNotUpperCase">
         <exclude-pattern>lib/Doctrine/DBAL/Events.php</exclude-pattern>
-    </rule>
-
-    <rule ref="SlevomatCodingStandard.Classes.UnusedPrivateElements.UnusedProperty">
-        <exclude-pattern>tests/Doctrine/Tests/DBAL/Tools/TestAsset/*</exclude-pattern>
     </rule>
 
     <!-- see https://github.com/squizlabs/PHP_CodeSniffer/issues/2099 -->
@@ -123,11 +114,6 @@
     <!-- The override opts out the caller from the strict mode for backward compatibility -->
     <rule ref="Generic.CodeAnalysis.UselessOverridingMethod.Found">
         <exclude-pattern>lib/Doctrine/DBAL/Driver/PDOConnection.php</exclude-pattern>
-    </rule>
-
-    <rule ref="SlevomatCodingStandard.Classes.UnusedPrivateElements.UnusedMethod">
-        <exclude-pattern>*/lib/Doctrine/DBAL/Driver/PDOConnection.php</exclude-pattern>
-        <exclude-pattern>*/lib/Doctrine/DBAL/Driver/PDOStatement.php</exclude-pattern>
     </rule>
 
     <!-- See https://github.com/slevomat/coding-standard/issues/770 -->
