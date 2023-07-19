@@ -4,6 +4,7 @@ namespace Doctrine\DBAL\Platforms;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
+use Doctrine\DBAL\Schema\AbstractAsset;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Identifier;
 use Doctrine\DBAL\Schema\Index;
@@ -31,6 +32,7 @@ use function is_string;
 use function sprintf;
 use function str_replace;
 use function strcasecmp;
+use function strtolower;
 use function strtoupper;
 use function trim;
 
@@ -111,7 +113,7 @@ abstract class AbstractMySQLPlatform extends AbstractPlatform
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getDateArithmeticIntervalExpression($date, $operator, $interval, $unit)
     {
@@ -236,7 +238,7 @@ abstract class AbstractMySQLPlatform extends AbstractPlatform
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getBinaryTypeDeclarationSQLSnippet($length, $fixed/*, $lengthOmitted = false*/)
     {
@@ -508,7 +510,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @internal The method should be only used from within the {@see AbstractPlatform} class hierarchy.
      */
@@ -620,7 +622,7 @@ SQL
             $queryParts[] = 'RENAME TO ' . $newName->getQuotedName($this);
         }
 
-        foreach ($diff->addedColumns as $column) {
+        foreach ($diff->getAddedColumns() as $column) {
             if ($this->onSchemaAlterTableAddColumn($column, $diff, $columnSql)) {
                 continue;
             }
@@ -635,7 +637,7 @@ SQL
             );
         }
 
-        foreach ($diff->removedColumns as $column) {
+        foreach ($diff->getDroppedColumns() as $column) {
             if ($this->onSchemaAlterTableRemoveColumn($column, $diff, $columnSql)) {
                 continue;
             }
@@ -643,7 +645,7 @@ SQL
             $queryParts[] =  'DROP ' . $column->getQuotedName($this);
         }
 
-        foreach ($diff->changedColumns as $columnDiff) {
+        foreach ($diff->getModifiedColumns() as $columnDiff) {
             if ($this->onSchemaAlterTableChangeColumn($columnDiff, $diff, $columnSql)) {
                 continue;
             }
@@ -660,7 +662,7 @@ SQL
                 . $this->getColumnDeclarationSQL($newColumn->getQuotedName($this), $newColumnProperties);
         }
 
-        foreach ($diff->renamedColumns as $oldColumnName => $column) {
+        foreach ($diff->getRenamedColumns() as $oldColumnName => $column) {
             if ($this->onSchemaAlterTableRenameColumn($oldColumnName, $column, $diff, $columnSql)) {
                 continue;
             }
@@ -675,21 +677,47 @@ SQL
                 . $this->getColumnDeclarationSQL($column->getQuotedName($this), $columnProperties);
         }
 
-        if (isset($diff->addedIndexes['primary'])) {
-            $keyColumns   = array_unique(array_values($diff->addedIndexes['primary']->getColumns()));
+        $addedIndexes    = $this->indexAssetsByLowerCaseName($diff->getAddedIndexes());
+        $modifiedIndexes = $this->indexAssetsByLowerCaseName($diff->getModifiedIndexes());
+        $diffModified    = false;
+
+        if (isset($addedIndexes['primary'])) {
+            $keyColumns   = array_unique(array_values($addedIndexes['primary']->getColumns()));
             $queryParts[] = 'ADD PRIMARY KEY (' . implode(', ', $keyColumns) . ')';
-            unset($diff->addedIndexes['primary']);
-        } elseif (isset($diff->changedIndexes['primary'])) {
+            unset($addedIndexes['primary']);
+            $diffModified = true;
+        } elseif (isset($modifiedIndexes['primary'])) {
+            $addedColumns = $this->indexAssetsByLowerCaseName($diff->getAddedColumns());
+
             // Necessary in case the new primary key includes a new auto_increment column
-            foreach ($diff->changedIndexes['primary']->getColumns() as $columnName) {
-                if (isset($diff->addedColumns[$columnName]) && $diff->addedColumns[$columnName]->getAutoincrement()) {
-                    $keyColumns   = array_unique(array_values($diff->changedIndexes['primary']->getColumns()));
+            foreach ($modifiedIndexes['primary']->getColumns() as $columnName) {
+                if (isset($addedColumns[$columnName]) && $addedColumns[$columnName]->getAutoincrement()) {
+                    $keyColumns   = array_unique(array_values($modifiedIndexes['primary']->getColumns()));
                     $queryParts[] = 'DROP PRIMARY KEY';
                     $queryParts[] = 'ADD PRIMARY KEY (' . implode(', ', $keyColumns) . ')';
-                    unset($diff->changedIndexes['primary']);
+                    unset($modifiedIndexes['primary']);
+                    $diffModified = true;
                     break;
                 }
             }
+        }
+
+        if ($diffModified) {
+            $diff = new TableDiff(
+                $diff->name,
+                $diff->getAddedColumns(),
+                $diff->getModifiedColumns(),
+                $diff->getDroppedColumns(),
+                array_values($addedIndexes),
+                array_values($modifiedIndexes),
+                $diff->getDroppedIndexes(),
+                $diff->getOldTable(),
+                $diff->getAddedForeignKeys(),
+                $diff->getModifiedForeignKeys(),
+                $diff->getDroppedForeignKeys(),
+                $diff->getRenamedColumns(),
+                $diff->getRenamedIndexes(),
+            );
         }
 
         $sql      = [];
@@ -720,33 +748,34 @@ SQL
 
         $tableNameSQL = ($diff->getOldTable() ?? $diff->getName($this))->getQuotedName($this);
 
-        foreach ($diff->changedIndexes as $changedIndex) {
+        foreach ($diff->getModifiedIndexes() as $changedIndex) {
             $sql = array_merge($sql, $this->getPreAlterTableAlterPrimaryKeySQL($diff, $changedIndex));
         }
 
-        foreach ($diff->removedIndexes as $remKey => $remIndex) {
-            $sql = array_merge($sql, $this->getPreAlterTableAlterPrimaryKeySQL($diff, $remIndex));
+        foreach ($diff->getDroppedIndexes() as $droppedIndex) {
+            $sql = array_merge($sql, $this->getPreAlterTableAlterPrimaryKeySQL($diff, $droppedIndex));
 
-            foreach ($diff->addedIndexes as $addKey => $addIndex) {
-                if ($remIndex->getColumns() !== $addIndex->getColumns()) {
+            foreach ($diff->getAddedIndexes() as $addedIndex) {
+                if ($droppedIndex->getColumns() !== $addedIndex->getColumns()) {
                     continue;
                 }
 
-                $indexClause = 'INDEX ' . $addIndex->getName();
+                $indexClause = 'INDEX ' . $addedIndex->getName();
 
-                if ($addIndex->isPrimary()) {
+                if ($addedIndex->isPrimary()) {
                     $indexClause = 'PRIMARY KEY';
-                } elseif ($addIndex->isUnique()) {
-                    $indexClause = 'UNIQUE INDEX ' . $addIndex->getName();
+                } elseif ($addedIndex->isUnique()) {
+                    $indexClause = 'UNIQUE INDEX ' . $addedIndex->getName();
                 }
 
-                $query  = 'ALTER TABLE ' . $tableNameSQL . ' DROP INDEX ' . $remIndex->getName() . ', ';
+                $query  = 'ALTER TABLE ' . $tableNameSQL . ' DROP INDEX ' . $droppedIndex->getName() . ', ';
                 $query .= 'ADD ' . $indexClause;
-                $query .= ' (' . $this->getIndexFieldDeclarationListSQL($addIndex) . ')';
+                $query .= ' (' . $this->getIndexFieldDeclarationListSQL($addedIndex) . ')';
 
                 $sql[] = $query;
 
-                unset($diff->removedIndexes[$remKey], $diff->addedIndexes[$addKey]);
+                $diff->unsetAddedIndex($addedIndex);
+                $diff->unsetDroppedIndex($droppedIndex);
 
                 break;
             }
@@ -837,19 +866,39 @@ SQL
             return [];
         }
 
+        $primaryKey = $table->getPrimaryKey();
+
+        if ($primaryKey === null) {
+            return [];
+        }
+
+        $primaryKeyColumns = [];
+
+        foreach ($primaryKey->getColumns() as $columnName) {
+            if (! $table->hasColumn($columnName)) {
+                continue;
+            }
+
+            $primaryKeyColumns[] = $table->getColumn($columnName);
+        }
+
+        if (count($primaryKeyColumns) === 0) {
+            return [];
+        }
+
         $sql = [];
 
         $tableNameSQL = $table->getQuotedName($this);
 
-        foreach ($diff->changedIndexes as $changedIndex) {
+        foreach ($diff->getModifiedIndexes() as $changedIndex) {
             // Changed primary key
             if (! $changedIndex->isPrimary()) {
                 continue;
             }
 
-            foreach ($table->getPrimaryKeyColumns() as $columnName => $column) {
+            foreach ($primaryKeyColumns as $column) {
                 // Check if an autoincrement column was dropped from the primary key.
-                if (! $column->getAutoincrement() || in_array($columnName, $changedIndex->getColumns(), true)) {
+                if (! $column->getAutoincrement() || in_array($column->getName(), $changedIndex->getColumns(), true)) {
                     continue;
                 }
 
@@ -881,7 +930,7 @@ SQL
         $tableNameSQL = ($diff->getOldTable() ?? $diff->getName($this))->getQuotedName($this);
 
         foreach ($this->getRemainingForeignKeyConstraintsRequiringRenamedIndexes($diff) as $foreignKey) {
-            if (in_array($foreignKey, $diff->changedForeignKeys, true)) {
+            if (in_array($foreignKey, $diff->getModifiedForeignKeys(), true)) {
                 continue;
             }
 
@@ -903,7 +952,7 @@ SQL
      */
     private function getRemainingForeignKeyConstraintsRequiringRenamedIndexes(TableDiff $diff): array
     {
-        if (empty($diff->renamedIndexes)) {
+        if (count($diff->getRenamedIndexes()) === 0) {
             return [];
         }
 
@@ -917,11 +966,11 @@ SQL
         /** @var ForeignKeyConstraint[] $remainingForeignKeys */
         $remainingForeignKeys = array_diff_key(
             $table->getForeignKeys(),
-            $diff->removedForeignKeys,
+            $diff->getDroppedForeignKeys(),
         );
 
         foreach ($remainingForeignKeys as $foreignKey) {
-            foreach ($diff->renamedIndexes as $index) {
+            foreach ($diff->getRenamedIndexes() as $index) {
                 if ($foreignKey->intersectsIndexColumns($index)) {
                     $foreignKeys[] = $foreignKey;
 
@@ -934,7 +983,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getPostAlterTableIndexForeignKeySQL(TableDiff $diff)
     {
@@ -961,7 +1010,7 @@ SQL
         }
 
         foreach ($this->getRemainingForeignKeyConstraintsRequiringRenamedIndexes($diff) as $foreignKey) {
-            if (in_array($foreignKey, $diff->changedForeignKeys, true)) {
+            if (in_array($foreignKey, $diff->getModifiedForeignKeys(), true)) {
                 continue;
             }
 
@@ -1013,7 +1062,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function getFloatDeclarationSQL(array $column)
     {
@@ -1021,7 +1070,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function getDecimalTypeDeclarationSQL(array $column)
     {
@@ -1230,7 +1279,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @deprecated
      */
@@ -1319,7 +1368,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function quoteStringLiteral($str)
     {
@@ -1329,7 +1378,7 @@ SQL
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function getDefaultTransactionIsolationLevel()
     {
@@ -1353,5 +1402,23 @@ SQL
     public function createSchemaManager(Connection $connection): MySQLSchemaManager
     {
         return new MySQLSchemaManager($connection, $this);
+    }
+
+    /**
+     * @param list<T> $assets
+     *
+     * @return array<string,T>
+     *
+     * @template T of AbstractAsset
+     */
+    private function indexAssetsByLowerCaseName(array $assets): array
+    {
+        $result = [];
+
+        foreach ($assets as $asset) {
+            $result[strtolower($asset->getName())] = $asset;
+        }
+
+        return $result;
     }
 }

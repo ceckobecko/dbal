@@ -14,6 +14,7 @@ use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\Comparator;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Index;
+use Doctrine\DBAL\Schema\SchemaDiff;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Schema\TableDiff;
 use Doctrine\DBAL\Schema\UniqueConstraint;
@@ -298,49 +299,6 @@ abstract class AbstractPlatformTestCase extends TestCase
             'ALTER TABLE test ADD CONSTRAINT constraint_fk FOREIGN KEY (fk_name) REFERENCES %s (id)',
             $quotedForeignTable,
         );
-    }
-
-    /** @return string[] */
-    abstract public function getGenerateAlterTableSql(): array;
-
-    public function testGeneratesTableAlterationSql(): void
-    {
-        $expectedSql = $this->getGenerateAlterTableSql();
-
-        $table = new Table('mytable');
-        $table->addColumn('id', 'integer', ['autoincrement' => true]);
-        $table->addColumn('foo', 'integer');
-        $table->addColumn('bar', 'string');
-        $table->addColumn('bloo', 'boolean');
-        $table->setPrimaryKey(['id']);
-
-        $tableDiff                         = new TableDiff('mytable');
-        $tableDiff->fromTable              = $table;
-        $tableDiff->newName                = 'userlist';
-        $tableDiff->addedColumns['quota']  = new Column('quota', Type::getType('integer'), ['notnull' => false]);
-        $tableDiff->removedColumns['foo']  = new Column('foo', Type::getType('integer'));
-        $tableDiff->changedColumns['bar']  = new ColumnDiff(
-            'bar',
-            new Column(
-                'baz',
-                Type::getType('string'),
-                ['default' => 'def'],
-            ),
-            ['type', 'notnull', 'default'],
-        );
-        $tableDiff->changedColumns['bloo'] = new ColumnDiff(
-            'bloo',
-            new Column(
-                'bloo',
-                Type::getType('boolean'),
-                ['default' => false],
-            ),
-            ['type', 'notnull', 'default'],
-        );
-
-        $sql = $this->platform->getAlterTableSQL($tableDiff);
-
-        self::assertEquals($expectedSql, $sql);
     }
 
     public function testGetCustomColumnDeclarationSql(): void
@@ -1247,43 +1205,6 @@ abstract class AbstractPlatformTestCase extends TestCase
     /** @return string[] */
     abstract public function getAlterTableRenameColumnSQL(): array;
 
-    public function testQuotesTableIdentifiersInAlterTableSQL(): void
-    {
-        $table = new Table('"foo"');
-        $table->addColumn('id', 'integer');
-        $table->addColumn('fk', 'integer');
-        $table->addColumn('fk2', 'integer');
-        $table->addColumn('fk3', 'integer');
-        $table->addColumn('bar', 'integer');
-        $table->addColumn('baz', 'integer');
-        $table->addForeignKeyConstraint('fk_table', ['fk'], ['id'], [], 'fk1');
-        $table->addForeignKeyConstraint('fk_table', ['fk2'], ['id'], [], 'fk2');
-
-        $tableDiff                        = new TableDiff('"foo"');
-        $tableDiff->fromTable             = $table;
-        $tableDiff->newName               = 'table';
-        $tableDiff->addedColumns['bloo']  = new Column('bloo', Type::getType('integer'));
-        $tableDiff->changedColumns['bar'] = new ColumnDiff(
-            'bar',
-            new Column('bar', Type::getType('integer'), ['notnull' => false]),
-            ['notnull'],
-            $table->getColumn('bar'),
-        );
-        $tableDiff->renamedColumns['id']  = new Column('war', Type::getType('integer'));
-        $tableDiff->removedColumns['baz'] = new Column('baz', Type::getType('integer'));
-        $tableDiff->addedForeignKeys[]    = new ForeignKeyConstraint(['fk3'], 'fk_table', ['id'], 'fk_add');
-        $tableDiff->changedForeignKeys[]  = new ForeignKeyConstraint(['fk2'], 'fk_table2', ['id'], 'fk2');
-        $tableDiff->removedForeignKeys[]  = new ForeignKeyConstraint(['fk'], 'fk_table', ['id'], 'fk1');
-
-        self::assertSame(
-            $this->getQuotesTableIdentifiersInAlterTableSQL(),
-            $this->platform->getAlterTableSQL($tableDiff),
-        );
-    }
-
-    /** @return string[] */
-    abstract protected function getQuotesTableIdentifiersInAlterTableSQL(): array;
-
     public function testAlterStringToFixedString(): void
     {
         $table = new Table('mytable');
@@ -1460,6 +1381,22 @@ abstract class AbstractPlatformTestCase extends TestCase
         };
         Type::getTypeRegistry()->override(Types::STRING, $type);
         self::assertTrue($this->platform->isCommentedDoctrineType($type));
+    }
+
+    public function testEmptyTableDiff(): void
+    {
+        $diff = new TableDiff('test');
+
+        self::assertTrue($diff->isEmpty());
+        self::assertSame([], $this->platform->getAlterTableSQL($diff));
+    }
+
+    public function testEmptySchemaDiff(): void
+    {
+        $diff = new SchemaDiff();
+
+        self::assertTrue($diff->isEmpty());
+        self::assertSame([], $this->platform->getAlterSchemaSQL($diff));
     }
 
     public function tearDown(): void

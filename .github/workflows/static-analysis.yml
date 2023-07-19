@@ -34,11 +34,11 @@ jobs:
     strategy:
       matrix:
         php-version:
-          - "8.1"
+          - "8.2"
 
     steps:
       - name: "Checkout code"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
 
       - name: "Install PHP"
         uses: "shivammathur/setup-php@v2"
@@ -48,7 +48,7 @@ jobs:
           tools: "cs2pr"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
 
       - name: "Run a static analysis with phpstan/phpstan"
         run: "vendor/bin/phpstan --error-format=checkstyle | cs2pr"
@@ -60,11 +60,11 @@ jobs:
     strategy:
       matrix:
         php-version:
-          - "8.1"
+          - "8.2"
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install PHP
         uses: shivammathur/setup-php@v2
@@ -74,7 +74,7 @@ jobs:
           tools: cs2pr
 
       - name: Install dependencies with Composer
-        uses: ramsey/composer-install@v1
+        uses: ramsey/composer-install@v2
 
       - name: Run static analysis with Vimeo Psalm
         run: vendor/bin/psalm --shepherd

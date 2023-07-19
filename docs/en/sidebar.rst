@@ -11,7 +11,6 @@
     reference/types
     reference/schema-manager
     reference/schema-representation
-    reference/events
     reference/security
     reference/supporting-other-databases
     reference/portability
@@ -19,5 +18,5 @@
     reference/known-vendor-issues
     reference/testing
 
-    explanation/dc2type-comments.rst
+    explanation/dc2type-comments
     explanation/implicit-indexes

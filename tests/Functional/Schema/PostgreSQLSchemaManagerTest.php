@@ -2,6 +2,7 @@
 
 namespace Doctrine\DBAL\Tests\Functional\Schema;
 
+use Doctrine\DBAL\Driver\ServerInfoAwareConnection;
 use Doctrine\DBAL\Exception\DatabaseObjectNotFoundException;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
@@ -15,6 +16,8 @@ use Doctrine\DBAL\Schema\TableDiff;
 use Doctrine\DBAL\Schema\View;
 use Doctrine\DBAL\Types\BlobType;
 use Doctrine\DBAL\Types\DecimalType;
+use Doctrine\DBAL\Types\IntegerType;
+use Doctrine\DBAL\Types\TextType;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\Deprecations\PHPUnit\VerifyDeprecations;
@@ -25,7 +28,9 @@ use function array_pop;
 use function array_unshift;
 use function assert;
 use function count;
+use function sprintf;
 use function strtolower;
+use function version_compare;
 
 class PostgreSQLSchemaManagerTest extends SchemaManagerFunctionalTestCase
 {
@@ -193,6 +198,32 @@ class PostgreSQLSchemaManagerTest extends SchemaManagerFunctionalTestCase
         self::assertCount(1, $relatedFks);
         $relatedFk = array_pop($relatedFks);
         self::assertEquals('nested.schemarelated', $relatedFk->getForeignTableName());
+    }
+
+    public function testListSameTableNameColumnsWithDifferentSchema(): void
+    {
+        $this->connection->executeStatement('CREATE SCHEMA another');
+        $table = new Table('table');
+        $table->addColumn('id', 'integer');
+        $table->addColumn('name', 'text');
+        $this->schemaManager->createTable($table);
+
+        $anotherSchemaTable = new Table('another.table');
+        $anotherSchemaTable->addColumn('id', 'text');
+        $anotherSchemaTable->addColumn('email', 'text');
+        $this->schemaManager->createTable($anotherSchemaTable);
+
+        $table = $this->schemaManager->listTableDetails('table');
+        $this->assertCount(2, $table->getColumns());
+        $this->assertTrue($table->hasColumn('id'));
+        $this->assertInstanceOf(IntegerType::class, $table->getColumn('id')->getType());
+        $this->assertTrue($table->hasColumn('name'));
+
+        $anotherSchemaTable = $this->schemaManager->listTableDetails('another.table');
+        $this->assertCount(2, $anotherSchemaTable->getColumns());
+        $this->assertTrue($anotherSchemaTable->hasColumn('id'));
+        $this->assertInstanceOf(TextType::class, $anotherSchemaTable->getColumn('id')->getType());
+        $this->assertTrue($anotherSchemaTable->hasColumn('email'));
     }
 
     public function testReturnQuotedAssets(): void
@@ -412,7 +443,7 @@ class PostgreSQLSchemaManagerTest extends SchemaManagerFunctionalTestCase
         try {
             Type::getTypeRegistry()->override(Types::JSON, new class extends Type {
                 /**
-                 * {@inheritdoc}
+                 * {@inheritDoc}
                  */
                 public function getSQLDeclaration(array $column, AbstractPlatform $platform): string
                 {
@@ -531,6 +562,69 @@ class PostgreSQLSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->schemaManager->alterTable($diff);
         $tableFinal = $this->schemaManager->introspectTable('autoinc_type_modification');
         self::assertTrue($tableFinal->getColumn('id')->getAutoincrement());
+    }
+
+    public function testListTableColumnsOidConflictWithNonTableObject(): void
+    {
+        $wrappedConnection = $this->connection->getWrappedConnection();
+        assert($wrappedConnection instanceof ServerInfoAwareConnection);
+        if (version_compare($wrappedConnection->getServerVersion(), '12.0', '<')) {
+            self::markTestSkipped('Manually setting the Oid is not supported in Postgres 11 and earlier');
+        }
+
+        $table = 'test_list_table_columns_oid_conflicts';
+        $this->connection->executeStatement(sprintf('CREATE TABLE IF NOT EXISTS %s(id INT NOT NULL)', $table));
+        $beforeColumns = $this->schemaManager->listTableColumns($table);
+        $this->assertArrayHasKey('id', $beforeColumns);
+
+        $this->connection->executeStatement('CREATE EXTENSION IF NOT EXISTS pg_prewarm');
+        $originalTableOid = $this->connection->fetchOne(
+            'SELECT oid FROM pg_class WHERE pg_class.relname = ?',
+            [$table],
+        );
+
+        $getConflictingOidSql = <<<'SQL'
+SELECT objid
+FROM pg_depend
+JOIN pg_extension as ex on ex.oid = pg_depend.refobjid
+WHERE ex.extname = 'pg_prewarm'
+ORDER BY objid
+LIMIT 1
+SQL;
+        $conflictingOid       = $this->connection->fetchOne($getConflictingOidSql);
+
+        $this->connection->executeStatement(
+            'UPDATE pg_attribute SET attrelid = ? WHERE attrelid = ?',
+            [$conflictingOid, $originalTableOid],
+        );
+        $this->connection->executeStatement(
+            'UPDATE pg_description SET objoid = ? WHERE objoid = ?',
+            [$conflictingOid, $originalTableOid],
+        );
+        $this->connection->executeStatement(
+            'UPDATE pg_class SET oid = ? WHERE oid = ?',
+            [$conflictingOid, $originalTableOid],
+        );
+
+        $afterColumns = $this->schemaManager->listTableColumns($table);
+
+        // revert to the database to original state prior to asserting result
+        $this->connection->executeStatement(
+            'UPDATE pg_attribute SET attrelid = ? WHERE attrelid = ?',
+            [$originalTableOid, $conflictingOid],
+        );
+        $this->connection->executeStatement(
+            'UPDATE pg_description SET objoid = ? WHERE objoid = ?',
+            [$originalTableOid, $conflictingOid],
+        );
+        $this->connection->executeStatement(
+            'UPDATE pg_class SET oid = ? WHERE oid = ?',
+            [$originalTableOid, $conflictingOid],
+        );
+        $this->connection->executeStatement(sprintf('DROP TABLE IF EXISTS %s', $table));
+        $this->connection->executeStatement('DROP EXTENSION IF EXISTS pg_prewarm');
+
+        $this->assertArrayHasKey('id', $afterColumns);
     }
 
     /** @return iterable<mixed[]> */

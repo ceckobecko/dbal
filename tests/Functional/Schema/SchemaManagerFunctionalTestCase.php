@@ -13,11 +13,8 @@ use Doctrine\DBAL\Platforms\SqlitePlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Schema\AbstractAsset;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
-use Doctrine\DBAL\Schema\Column;
-use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\Comparator;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
-use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\SchemaDiff;
 use Doctrine\DBAL\Schema\SchemaException;
@@ -69,7 +66,7 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
             self::markTestSkipped(sprintf('Skipping since connected to %s', get_class($platform)));
         }
 
-        $this->schemaManager = $this->connection->getSchemaManager();
+        $this->schemaManager = $this->connection->createSchemaManager();
     }
 
     protected function tearDown(): void
@@ -659,7 +656,7 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
             self::markTestSkipped('Alter Table is not supported by this platform.');
         }
 
-        $alterTable = $this->createTestTable('alter_table');
+        $this->createTestTable('alter_table');
         $this->createTestTable('alter_table_foreign');
 
         $table = $this->schemaManager->introspectTable('alter_table');
@@ -669,22 +666,28 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
         self::assertCount(0, $table->getForeignKeys());
         self::assertCount(1, $table->getIndexes());
 
-        $tableDiff                         = new TableDiff('alter_table');
-        $tableDiff->fromTable              = $alterTable;
-        $tableDiff->addedColumns['foo']    = new Column('foo', Type::getType('integer'));
-        $tableDiff->removedColumns['test'] = $table->getColumn('test');
+        $newTable = clone $table;
+        $newTable->addColumn('foo', 'integer');
+        $newTable->dropColumn('test');
 
-        $this->schemaManager->alterTable($tableDiff);
+        $comparator = $this->schemaManager->createComparator();
+
+        $diff = $comparator->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
 
         $table = $this->schemaManager->introspectTable('alter_table');
         self::assertFalse($table->hasColumn('test'));
         self::assertTrue($table->hasColumn('foo'));
 
-        $tableDiff                 = new TableDiff('alter_table');
-        $tableDiff->fromTable      = $table;
-        $tableDiff->addedIndexes[] = new Index('foo_idx', ['foo']);
+        $newTable = clone $table;
+        $newTable->addIndex(['foo'], 'foo_idx');
 
-        $this->schemaManager->alterTable($tableDiff);
+        $diff = $comparator->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
 
         $table = $this->schemaManager->introspectTable('alter_table');
         self::assertCount(2, $table->getIndexes());
@@ -693,11 +696,14 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
         self::assertFalse($table->getIndex('foo_idx')->isPrimary());
         self::assertFalse($table->getIndex('foo_idx')->isUnique());
 
-        $tableDiff                   = new TableDiff('alter_table');
-        $tableDiff->fromTable        = $table;
-        $tableDiff->changedIndexes[] = new Index('foo_idx', ['foo', 'foreign_key_test']);
+        $newTable = clone $table;
+        $newTable->dropIndex('foo_idx');
+        $newTable->addIndex(['foo', 'foreign_key_test'], 'foo_idx');
 
-        $this->schemaManager->alterTable($tableDiff);
+        $diff = $comparator->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
 
         $table = $this->schemaManager->introspectTable('alter_table');
         self::assertCount(2, $table->getIndexes());
@@ -707,11 +713,14 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
             array_map('strtolower', $table->getIndex('foo_idx')->getColumns()),
         );
 
-        $tableDiff                            = new TableDiff('alter_table');
-        $tableDiff->fromTable                 = $table;
-        $tableDiff->renamedIndexes['foo_idx'] = new Index('bar_idx', ['foo', 'foreign_key_test']);
+        $newTable = clone $table;
+        $newTable->dropIndex('foo_idx');
+        $newTable->addIndex(['foo', 'foreign_key_test'], 'bar_idx');
 
-        $this->schemaManager->alterTable($tableDiff);
+        $diff = $comparator->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
 
         $table = $this->schemaManager->introspectTable('alter_table');
         self::assertCount(2, $table->getIndexes());
@@ -724,16 +733,18 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
         self::assertFalse($table->getIndex('bar_idx')->isPrimary());
         self::assertFalse($table->getIndex('bar_idx')->isUnique());
 
-        $tableDiff                     = new TableDiff('alter_table');
-        $tableDiff->fromTable          = $table;
-        $tableDiff->removedIndexes[]   = new Index('bar_idx', ['foo', 'foreign_key_test']);
-        $fk                            = new ForeignKeyConstraint(['foreign_key_test'], 'alter_table_foreign', ['id']);
-        $tableDiff->addedForeignKeys[] = $fk;
+        $newTable = clone $table;
+        $newTable->dropIndex('bar_idx');
+        $newTable->addForeignKeyConstraint('alter_table_foreign', ['foreign_key_test'], ['id']);
 
-        $this->schemaManager->alterTable($tableDiff);
+        $diff = $comparator->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
+
         $table = $this->schemaManager->introspectTable('alter_table');
 
-        // dont check for index size here, some platforms automatically add indexes for foreign keys.
+        // don't check for index size here, some platforms automatically add indexes for foreign keys.
         self::assertFalse($table->hasIndex('bar_idx'));
 
         $fks = $table->getForeignKeys();
@@ -746,7 +757,9 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
 
     public function testTableInNamespace(): void
     {
-        if (! $this->connection->getDatabasePlatform()->supportsSchemas()) {
+        $platform = $this->connection->getDatabasePlatform();
+
+        if (! $platform->supportsSchemas()) {
             self::markTestSkipped('Schema definition is not supported by this platform.');
         }
 
@@ -754,7 +767,7 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
         $diff                  = new SchemaDiff();
         $diff->newNamespaces[] = 'testschema';
 
-        foreach ($diff->toSql($this->connection->getDatabasePlatform()) as $sql) {
+        foreach ($platform->getAlterSchemaSQL($diff) as $sql) {
             $this->connection->executeStatement($sql);
         }
 
@@ -940,23 +953,14 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
         self::assertCount(1, $columns);
         self::assertEquals('This is a comment', $columns['id']->getComment());
 
-        $tableDiff                       = new TableDiff('column_comment_test');
-        $tableDiff->fromTable            = $table;
-        $tableDiff->changedColumns['id'] = new ColumnDiff(
-            'id',
-            new Column(
-                'id',
-                Type::getType('integer'),
-            ),
-            ['comment'],
-            new Column(
-                'id',
-                Type::getType('integer'),
-                ['comment' => 'This is a comment'],
-            ),
-        );
+        $newTable = clone $table;
+        $newTable->changeColumn('id', ['comment' => null]);
 
-        $this->schemaManager->alterTable($tableDiff);
+        $diff = $this->schemaManager->createComparator()
+            ->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
+
+        $this->schemaManager->alterTable($diff);
 
         $columns = $this->schemaManager->listTableColumns('column_comment_test');
         self::assertCount(1, $columns);
@@ -1028,23 +1032,15 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
 
         $this->dropAndCreateTable($table);
 
-        $tableDiff                            = new TableDiff($tableName);
-        $tableDiff->fromTable                 = $table;
-        $tableDiff->changedColumns['col_int'] = new ColumnDiff(
-            'col_int',
-            new Column('col_int', Type::getType('integer'), ['default' => 666]),
-            ['type'],
-            new Column('col_int', Type::getType('smallint'), ['default' => 666]),
-        );
+        $newTable = clone $table;
+        $newTable->changeColumn('col_int', ['type' => Type::getType('integer')]);
+        $newTable->changeColumn('col_string', ['fixed' => true]);
 
-        $tableDiff->changedColumns['col_string'] = new ColumnDiff(
-            'col_string',
-            new Column('col_string', Type::getType('string'), ['default' => 'foo', 'fixed' => true]),
-            ['fixed'],
-            new Column('col_string', Type::getType('string'), ['default' => 'foo']),
-        );
+        $diff = $this->schemaManager->createComparator()
+            ->diffTable($table, $newTable);
+        self::assertNotFalse($diff);
 
-        $this->schemaManager->alterTable($tableDiff);
+        $this->schemaManager->alterTable($diff);
 
         $columns = $this->schemaManager->listTableColumns($tableName);
 
@@ -1708,6 +1704,92 @@ abstract class SchemaManagerFunctionalTestCase extends FunctionalTestCase
 
         $schemaManager = $this->connection->createSchemaManager();
         $schemaManager->createSchemaObjects($schema);
+    }
+
+    public function testChangeIndexWithForeignKeys(): void
+    {
+        $this->dropTableIfExists('child');
+        $this->dropTableIfExists('parent');
+
+        $schema = new Schema();
+
+        $parent = $schema->createTable('parent');
+        $parent->addColumn('id', 'integer');
+        $parent->setPrimaryKey(['id']);
+
+        $child = $schema->createTable('child');
+        $child->addColumn('id', 'integer');
+        $child->addColumn('parent_id', 'integer');
+        $child->addIndex(['parent_id'], 'idx_1');
+        $child->addForeignKeyConstraint('parent', ['parent_id'], ['id']);
+
+        $schemaManager = $this->connection->createSchemaManager();
+        $schemaManager->createSchemaObjects($schema);
+
+        $child->dropIndex('idx_1');
+        $child->addIndex(['parent_id'], 'idx_2');
+
+        $diff = $schemaManager->createComparator()->diffTable(
+            $schemaManager->introspectTable('child'),
+            $child,
+        );
+        self::assertNotFalse($diff);
+
+        $schemaManager->alterTable($diff);
+
+        $child = $schemaManager->introspectTable('child');
+
+        self::assertFalse($child->hasIndex('idx_1'));
+        self::assertTrue($child->hasIndex('idx_2'));
+    }
+
+    public function testSwitchPrimaryKeyOrder(): void
+    {
+        $prototype = new Table('test_switch_pk_order');
+        $prototype->addColumn('foo_id', 'integer');
+        $prototype->addColumn('bar_id', 'integer');
+
+        $table = clone $prototype;
+        $table->setPrimaryKey(['foo_id', 'bar_id']);
+        $this->dropAndCreateTable($table);
+
+        $table = clone $prototype;
+        $table->setPrimaryKey(['bar_id', 'foo_id']);
+
+        $schemaManager = $this->connection->createSchemaManager();
+
+        $diff = $schemaManager->createComparator()->diffTable(
+            $schemaManager->introspectTable('test_switch_pk_order'),
+            $table,
+        );
+        self::assertNotFalse($diff);
+
+        $table      = $schemaManager->introspectTable('test_switch_pk_order');
+        $primaryKey = $table->getPrimaryKey();
+        self::assertNotNull($primaryKey);
+        self::assertSame(['foo_id', 'bar_id'], array_map('strtolower', $primaryKey->getColumns()));
+    }
+
+    public function testDropColumnWithDefault(): void
+    {
+        $table = new Table('drop_column_with_default');
+        $table->addColumn('id', 'integer');
+        $table->addColumn('todrop', 'decimal', ['default' => 10.2]);
+
+        $this->dropAndCreateTable($table);
+
+        $table->dropColumn('todrop');
+
+        $diff = $this->schemaManager->createComparator()
+            ->diffTable(
+                $this->schemaManager->introspectTable('drop_column_with_default'),
+                $table,
+            );
+        self::assertNotFalse($diff);
+        $this->schemaManager->alterTable($diff);
+
+        $columns = $this->schemaManager->listTableColumns('drop_column_with_default');
+        self::assertCount(1, $columns);
     }
 
     /** @param list<Table> $tables */

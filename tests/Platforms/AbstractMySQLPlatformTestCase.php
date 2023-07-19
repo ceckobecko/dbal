@@ -18,7 +18,7 @@ use function array_shift;
 /** @extends AbstractPlatformTestCase<MySQLPlatform> */
 abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
 {
-    public function testModifyLimitQueryWitoutLimit(): void
+    public function testModifyLimitQueryWithoutLimit(): void
     {
         $sql = $this->platform->modifyLimitQuery('SELECT n FROM Foo', null, 10);
         self::assertEquals('SELECT n FROM Foo LIMIT 18446744073709551615 OFFSET 10', $sql);
@@ -49,18 +49,6 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
             'CREATE TABLE test (foo VARCHAR(255) DEFAULT NULL, bar VARCHAR(255) DEFAULT NULL, '
                 . 'UNIQUE INDEX UNIQ_D87F7E0C8C73652176FF8CAA (foo, bar))'
                 . ' DEFAULT CHARACTER SET utf8 COLLATE `utf8_unicode_ci` ENGINE = InnoDB',
-        ];
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function getGenerateAlterTableSql(): array
-    {
-        return [
-            'ALTER TABLE mytable RENAME TO userlist, ADD quota INT DEFAULT NULL, DROP foo, '
-                . "CHANGE bar baz VARCHAR(255) DEFAULT 'def' NOT NULL, "
-                . 'CHANGE bloo bloo TINYINT(1) DEFAULT 0 NOT NULL',
         ];
     }
 
@@ -245,20 +233,6 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
             "CREATE TABLE test (id INT NOT NULL, data LONGTEXT NOT NULL COMMENT '(DC2Type:array)', "
                 . 'PRIMARY KEY(id)) DEFAULT CHARACTER SET utf8 COLLATE `utf8_unicode_ci` ENGINE = InnoDB',
         ];
-    }
-
-    public function testChangeIndexWithForeignKeys(): void
-    {
-        $index  = new Index('idx', ['col'], false);
-        $unique = new Index('uniq', ['col'], true);
-
-        $diff = new TableDiff('test', [], [], [], [$unique], [], [$index]);
-        $sql  = $this->platform->getAlterTableSQL($diff);
-        self::assertEquals(['ALTER TABLE test DROP INDEX idx, ADD UNIQUE INDEX uniq (col)'], $sql);
-
-        $diff = new TableDiff('test', [], [], [], [$index], [], [$unique]);
-        $sql  = $this->platform->getAlterTableSQL($diff);
-        self::assertEquals(['ALTER TABLE test DROP INDEX uniq, ADD INDEX idx (col)'], $sql);
     }
 
     /** @return string[] */
@@ -770,7 +744,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getQuotedAlterTableRenameColumnSQL(): array
     {
@@ -788,7 +762,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getQuotedAlterTableChangeColumnLengthSQL(): array
     {
@@ -808,7 +782,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function getAlterTableRenameColumnSQL(): array
     {
@@ -816,22 +790,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
-     */
-    protected function getQuotesTableIdentifiersInAlterTableSQL(): array
-    {
-        return [
-            'ALTER TABLE `foo` DROP FOREIGN KEY fk1',
-            'ALTER TABLE `foo` DROP FOREIGN KEY fk2',
-            'ALTER TABLE `foo` RENAME TO `table`, ADD bloo INT NOT NULL, DROP baz, CHANGE bar bar INT DEFAULT NULL, ' .
-            'CHANGE id war INT NOT NULL',
-            'ALTER TABLE `table` ADD CONSTRAINT fk_add FOREIGN KEY (fk3) REFERENCES fk_table (id)',
-            'ALTER TABLE `table` ADD CONSTRAINT fk2 FOREIGN KEY (fk2) REFERENCES fk_table2 (id)',
-        ];
-    }
-
-    /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getCommentOnColumnSQL(): array
     {
@@ -858,7 +817,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getAlterStringToFixedStringSQL(): array
     {
@@ -866,7 +825,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getGeneratesAlterTableRenameIndexUsedByForeignKeySQL(): array
     {
@@ -879,7 +838,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public static function getGeneratesDecimalTypeDeclarationSQL(): iterable
     {
@@ -894,7 +853,7 @@ abstract class AbstractMySQLPlatformTestCase extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public static function getGeneratesFloatDeclarationSQL(): iterable
     {

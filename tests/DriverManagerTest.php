@@ -10,6 +10,8 @@ use Doctrine\DBAL\Driver\SQLSrv\Driver as SQLSrvDriver;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\DBAL\Tools\DsnParser;
+use Doctrine\Deprecations\PHPUnit\VerifyDeprecations;
 use PHPUnit\Framework\TestCase;
 use stdClass;
 
@@ -19,8 +21,11 @@ use function get_class;
 use function in_array;
 use function is_array;
 
+/** @psalm-import-type Params from DriverManager */
 class DriverManagerTest extends TestCase
 {
+    use VerifyDeprecations;
+
     public function testCheckParams(): void
     {
         $this->expectException(Exception::class);
@@ -41,7 +46,8 @@ class DriverManagerTest extends TestCase
     {
         $platform = $this->createMock(AbstractPlatform::class);
         $options  = [
-            'url' => 'sqlite::memory:',
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
             'platform' => $platform,
         ];
 
@@ -56,12 +62,26 @@ class DriverManagerTest extends TestCase
         $wrapperClass = get_class($wrapper);
 
         $options = [
-            'url' => 'sqlite::memory:',
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
             'wrapperClass' => $wrapperClass,
         ];
 
         $conn = DriverManager::getConnection($options);
         self::assertInstanceOf($wrapperClass, $conn);
+    }
+
+    /** @requires extension pdo_sqlite */
+    public function testDefaultWrapper(): void
+    {
+        $options = [
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
+            'wrapperClass' => Connection::class,
+        ];
+
+        $conn = DriverManager::getConnection($options);
+        self::assertSame(Connection::class, get_class($conn));
     }
 
     /**
@@ -73,7 +93,8 @@ class DriverManagerTest extends TestCase
         $this->expectException(Exception::class);
 
         $options = [
-            'url' => 'sqlite::memory:',
+            'driver' => 'pdo_sqlite',
+            'memory' => true,
             'wrapperClass' => stdClass::class,
         ];
 
@@ -109,6 +130,7 @@ class DriverManagerTest extends TestCase
             'wrapperClass' => PrimaryReadReplicaConnection::class,
         ];
 
+        $this->expectDeprecationWithIdentifier('https://github.com/doctrine/dbal/pull/5843');
         $conn = DriverManager::getConnection($options);
 
         $params = $conn->getParams();
@@ -142,12 +164,12 @@ class DriverManagerTest extends TestCase
     }
 
     /**
-     * @param mixed $url
-     * @param mixed $expected
+     * @param array<string, mixed>|false $expected
+     * @psalm-param Params|string $url
      *
      * @dataProvider databaseUrls
      */
-    public function testDatabaseUrl($url, $expected): void
+    public function testDatabaseUrlDeprecated($url, $expected): void
     {
         $options = is_array($url) ? $url : ['url' => $url];
 
@@ -155,7 +177,10 @@ class DriverManagerTest extends TestCase
             $this->expectException(Exception::class);
         }
 
+        $this->expectDeprecationWithIdentifier('https://github.com/doctrine/dbal/pull/5843');
         $conn = DriverManager::getConnection($options);
+
+        self::assertNotFalse($expected);
 
         $params = $conn->getParams();
         foreach ($expected as $key => $value) {
@@ -167,7 +192,53 @@ class DriverManagerTest extends TestCase
         }
     }
 
-    /** @return array<string, list<mixed>> */
+    /**
+     * @param array<string, mixed>|string $url
+     * @param array<string, mixed>|false  $expected
+     *
+     * @dataProvider databaseUrls
+     */
+    public function testDatabaseUrl($url, $expected): void
+    {
+        if (is_array($url)) {
+            if (isset($url['driverClass'])) {
+                self::markTestSkipped(
+                    'Legacy test case: Merging driverClass into the parsed parameters has to be done in userland now.',
+                );
+            }
+
+            ['url' => $url] = $options = $url;
+            unset($options['url']);
+        } else {
+            $options = [];
+        }
+
+        $parser  = new DsnParser(['mysql' => 'pdo_mysql', 'sqlite' => 'pdo_sqlite']);
+        $options = array_merge($options, $parser->parse($url));
+
+        if ($expected === false) {
+            $this->expectException(Exception::class);
+        }
+
+        $conn = DriverManager::getConnection($options);
+
+        self::assertNotFalse($expected);
+
+        $params = $conn->getParams();
+        foreach ($expected as $key => $value) {
+            if (in_array($key, ['driver', 'driverClass'], true)) {
+                self::assertInstanceOf($value, $conn->getDriver());
+            } else {
+                self::assertEquals($value, $params[$key]);
+            }
+        }
+    }
+
+    /** @psalm-return array<string, array{
+     *                    string|array<string, mixed>,
+     *                    array<string, mixed>|false,
+     *                }>
+     */
     public function databaseUrls(): iterable
     {
         $driver      = $this->createMock(Driver::class);

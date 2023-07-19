@@ -1,4 +1,3 @@
-
 name: "Continuous Integration"
 
 on:
@@ -42,19 +41,28 @@ jobs:
           - "8.0"
           - "8.1"
           - "8.2"
+          - "8.3"
         dependencies:
           - "highest"
+        extension:
+          - "pdo_sqlite"
         include:
           - os: "ubuntu-20.04"
             php-version: "7.4"
             dependencies: "lowest"
+            extension: "pdo_sqlite"
+          - os: "ubuntu-22.04"
+            php-version: "7.4"
+            dependencies: "highest"
+            extension: "sqlite3"
           - os: "ubuntu-22.04"
             php-version: "8.1"
             dependencies: "highest"
+            extension: "sqlite3"
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -66,7 +74,7 @@ jobs:
           ini-values: "zend.assertions=1"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
           dependency-versions: "${{ matrix.dependencies }}"
@@ -74,14 +82,20 @@ jobs:
       - name: "Print SQLite version"
         run: >
           php -r 'printf("Testing with libsqlite version %s\n", (new PDO("sqlite::memory:"))->query("select sqlite_version()")->fetch()[0]);'
+        if: "${{ matrix.extension == 'pdo_sqlite' }}"
+
+      - name: "Print SQLite version"
+        run: >
+          php -r 'printf("Testing with libsqlite version %s\n", SQLite3::version()["versionString"]);'
+        if: "${{ matrix.extension == 'sqlite3' }}"
 
       - name: "Run PHPUnit"
-        run: "vendor/bin/phpunit -c ci/github/phpunit/sqlite.xml --coverage-clover=coverage.xml"
+        run: "vendor/bin/phpunit -c ci/github/phpunit/${{ matrix.extension }}.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
-          name: "phpunit-sqlite-${{ matrix.deps }}-${{ matrix.php-version }}.coverage"
+          name: "phpunit-${{ matrix.extension }}-${{ matrix.deps }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
 
   phpunit-oci8:
@@ -93,8 +107,8 @@ jobs:
       matrix:
         php-version:
           - "7.4"
-          - "8.1"
           - "8.2"
+          - "8.3"
         oracle-version:
           - "21"
         include:
@@ -116,7 +130,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -129,7 +143,7 @@ jobs:
           ini-values: "zend.assertions=1"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
@@ -137,7 +151,7 @@ jobs:
         run: "vendor/bin/phpunit -c ci/github/phpunit/oci8.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
@@ -151,8 +165,8 @@ jobs:
       matrix:
         php-version:
           - "7.4"
-          - "8.1"
           - "8.2"
+          - "8.3"
         oracle-version:
           - "21"
         include:
@@ -174,7 +188,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -187,7 +201,7 @@ jobs:
           ini-values: "zend.assertions=1"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
@@ -195,7 +209,7 @@ jobs:
         run: "vendor/bin/phpunit -c ci/github/phpunit/pdo_oci.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
@@ -211,13 +225,23 @@ jobs:
           - "7.4"
         postgres-version:
           - "9.4"
-          - "13"
-          - "14"
+          - "15"
+        extension:
+          - "pgsql"
+          - "pdo_pgsql"
         include:
-          - php-version: "8.1"
-            postgres-version: "14"
           - php-version: "8.2"
-            postgres-version: "14"
+            postgres-version: "15"
+            extension: "pgsql"
+          - php-version: "8.3"
+            postgres-version: "15"
+            extension: "pgsql"
+          - php-version: "8.2"
+            postgres-version: "15"
+            extension: "pdo_pgsql"
+          - php-version: "8.3"
+            postgres-version: "15"
+            extension: "pdo_pgsql"
 
     services:
       postgres:
@@ -233,7 +257,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -241,21 +265,22 @@ jobs:
         uses: "shivammathur/setup-php@v2"
         with:
           php-version: "${{ matrix.php-version }}"
+          extensions: "pgsql pdo_pgsql"
           coverage: "pcov"
           ini-values: "zend.assertions=1"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
       - name: "Run PHPUnit"
-        run: "vendor/bin/phpunit -c ci/github/phpunit/pdo_pgsql.xml --coverage-clover=coverage.xml"
+        run: "vendor/bin/phpunit -c ci/github/phpunit/${{ matrix.extension }}.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
-          name: "${{ github.job }}-${{ matrix.postgres-version }}-${{ matrix.php-version }}.coverage"
+          name: "${{ github.job }}-${{ matrix.postgres-version }}-${{ matrix.extension }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
 
   phpunit-mariadb:
@@ -272,27 +297,29 @@ jobs:
           - "10.2"
           - "10.5"
           - "10.7"
+          - "10.9"
+          - "10.11"
         extension:
           - "mysqli"
           - "pdo_mysql"
         include:
-          - php-version: "8.1"
-            mariadb-version: "10.5"
-            extension: "mysqli"
-          - php-version: "8.1"
-            mariadb-version: "10.5"
-            extension: "pdo_mysql"
-          - php-version: "8.1"
-            mariadb-version: "10.7"
-            extension: "mysqli"
-          - php-version: "8.1"
-            mariadb-version: "10.7"
-            extension: "pdo_mysql"
           - php-version: "8.2"
             mariadb-version: "10.7"
             extension: "mysqli"
           - php-version: "8.2"
             mariadb-version: "10.7"
+            extension: "pdo_mysql"
+          - php-version: "8.2"
+            mariadb-version: "10.11"
+            extension: "mysqli"
+          - php-version: "8.2"
+            mariadb-version: "10.11"
+            extension: "pdo_mysql"
+          - php-version: "8.3"
+            mariadb-version: "10.11"
+            extension: "mysqli"
+          - php-version: "8.3"
+            mariadb-version: "10.11"
             extension: "pdo_mysql"
 
     services:
@@ -310,7 +337,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -323,7 +350,7 @@ jobs:
           extensions: "${{ matrix.extension }}"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
@@ -331,7 +358,7 @@ jobs:
         run: "vendor/bin/phpunit -c ci/github/phpunit/${{ matrix.extension }}.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.mariadb-version }}-${{ matrix.extension }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
@@ -345,7 +372,7 @@ jobs:
       matrix:
         php-version:
           - "7.4"
-          - "8.0"
+          - "8.1"
         mysql-version:
           - "5.7"
           - "8.0"
@@ -364,20 +391,20 @@ jobs:
             php-version: "7.4"
             mysql-version: "8.0"
             extension: "mysqli"
-          - php-version: "8.1"
+          - php-version: "8.2"
             mysql-version: "8.0"
             extension: "mysqli"
             custom-entrypoint: >-
               --entrypoint sh mysql:8 -c "exec docker-entrypoint.sh mysqld --default-authentication-plugin=mysql_native_password"
-          - php-version: "8.1"
+          - php-version: "8.2"
             mysql-version: "8.0"
             extension: "pdo_mysql"
             custom-entrypoint: >-
               --entrypoint sh mysql:8 -c "exec docker-entrypoint.sh mysqld --default-authentication-plugin=mysql_native_password"
-          - php-version: "8.2"
+          - php-version: "8.3"
             mysql-version: "8.0"
             extension: "mysqli"
-          - php-version: "8.2"
+          - php-version: "8.3"
             mysql-version: "8.0"
             extension: "pdo_mysql"
 
@@ -396,7 +423,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -409,7 +436,7 @@ jobs:
           extensions: "${{ matrix.extension }}"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
@@ -421,7 +448,7 @@ jobs:
         run: "vendor/bin/phpunit -c ci/github/phpunit/${{ matrix.extension }}${{ matrix.config-file-suffix }}.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.mysql-version }}-${{ matrix.extension }}-${{ matrix.config-file-suffix }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
@@ -435,8 +462,8 @@ jobs:
       matrix:
         php-version:
           - "7.4"
-          - "8.1"
           - "8.2"
+          - "8.3"
         extension:
           - "sqlsrv"
           - "pdo_sqlsrv"
@@ -466,7 +493,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
@@ -480,7 +507,7 @@ jobs:
           extensions: "${{ matrix.extension }}-5.10.0beta1"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--ignore-platform-req=php+"
 
@@ -488,7 +515,7 @@ jobs:
         run: "vendor/bin/phpunit -c ci/github/phpunit/${{ matrix.extension }}.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.extension }}-${{ matrix.php-version }}-${{ matrix.collation }}.coverage"
           path: "coverage.xml"
@@ -502,10 +529,12 @@ jobs:
       matrix:
         php-version:
           - "7.4"
+          - "8.2"
+          - "8.3"
 
     services:
       ibm_db2:
-        image: "ibmcom/db2:11.5.0.0"
+        image: "icr.io/db2_community/db2:11.5.8.0"
         env:
           DB2INST1_PASSWORD: "Doctrine2018"
           LICENSE: "accept"
@@ -521,37 +550,44 @@ jobs:
         run: "docker logs -f ${{ job.services.ibm_db2.id }} | sed '/(*) Setup has completed./ q'"
 
       - name: "Create temporary tablespace"
-        run: "docker exec ${{ job.services.ibm_db2.id }} su - db2inst1 -c 'db2 CONNECT TO doctrine && db2 CREATE USER TEMPORARY TABLESPACE doctrine_tbsp PAGESIZE 4 K'"
+        run: "docker exec ${{ job.services.ibm_db2.id }} su - db2inst1 -c 'db2 -t CONNECT TO doctrine; db2 -t CREATE USER TEMPORARY TABLESPACE doctrine_tbsp PAGESIZE 4 K;'"
 
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
+
+      - name: "Install IBM DB2 CLI driver"
+        working-directory: /tmp
+        run: |
+          wget https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/linuxx64_odbc_cli.tar.gz
+          tar xf linuxx64_odbc_cli.tar.gz
+          rm linuxx64_odbc_cli.tar.gz
 
       - name: "Install PHP"
         uses: "shivammathur/setup-php@v2"
         with:
           php-version: "${{ matrix.php-version }}"
+          extensions: "ibm_db2"
           coverage: "pcov"
-          ini-values: "zend.assertions=1,extension=ibm_db2.so, ibm_db2.instance_name=db2inst1"
-
-      - name: "Install ibm_db2 extension"
-        run: "ci/github/ext/install-ibm_db2.sh ${{ matrix.php-version }}"
+          ini-values: "zend.assertions=1, ibm_db2.instance_name=db2inst1"
+        env:
+          IBM_DB2_CONFIGURE_OPTS: "--with-IBM_DB2=/tmp/clidriver"
 
       - name: "Install dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
 
       - name: "Run PHPUnit"
         run: "vendor/bin/phpunit -c ci/github/phpunit/ibm_db2.xml --coverage-clover=coverage.xml"
 
       - name: "Upload coverage file"
-        uses: "actions/upload-artifact@v2"
+        uses: "actions/upload-artifact@v3"
         with:
           name: "${{ github.job }}-${{ matrix.php-version }}.coverage"
           path: "coverage.xml"
 
   development-deps:
-    name: "PHPUnit with SQLite and development dependencies"
+    name: "PHPUnit with PDO_SQLite and development dependencies"
     runs-on: "ubuntu-22.04"
 
     strategy:
@@ -561,7 +597,7 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
 
       - name: "Install PHP"
         uses: "shivammathur/setup-php@v2"
@@ -572,12 +608,12 @@ jobs:
         run: "composer config minimum-stability dev"
 
       - name: "Install development dependencies with Composer"
-        uses: "ramsey/composer-install@v1"
+        uses: "ramsey/composer-install@v2"
         with:
           composer-options: "--prefer-dist"
 
       - name: "Run PHPUnit"
-        run: "vendor/bin/phpunit -c ci/github/phpunit/sqlite.xml"
+        run: "vendor/bin/phpunit -c ci/github/phpunit/pdo_sqlite.xml"
 
   upload_coverage:
     name: "Upload coverage to Codecov"
@@ -594,12 +630,12 @@ jobs:
 
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v2"
+        uses: "actions/checkout@v3"
         with:
           fetch-depth: 2
 
       - name: "Download coverage files"
-        uses: "actions/download-artifact@v2"
+        uses: "actions/download-artifact@v3"
         with:
           path: "reports"
 
@@ -608,6 +644,6 @@ jobs:
         working-directory: reports
 
       - name: "Upload to Codecov"
-        uses: "codecov/codecov-action@v1"
+        uses: "codecov/codecov-action@v3"
         with:
           directory: reports

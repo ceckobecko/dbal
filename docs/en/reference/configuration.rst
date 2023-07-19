@@ -10,6 +10,8 @@ You can get a DBAL Connection through the
 .. code-block:: php
 
     <?php
+    use Doctrine\DBAL\DriverManager;
+
     //..
     $connectionParams = [
         'dbname' => 'mydb',
@@ -18,18 +20,23 @@ You can get a DBAL Connection through the
         'host' => 'localhost',
         'driver' => 'pdo_mysql',
     ];
-    $conn = \Doctrine\DBAL\DriverManager::getConnection($connectionParams);
+    $conn = DriverManager::getConnection($connectionParams);
 
-Or, using the simpler URL form:
+Alternatively, if you store your connection settings as a connection URL (DSN),
+you can parse the URL to extract connection parameters for ``DriverManager``:
 
 .. code-block:: php
 
     <?php
+    use Doctrine\DBAL\DriverManager;
+    use Doctrine\DBAL\Tools\DsnParser;
+
     //..
-    $connectionParams = [
-        'url' => 'mysql://user:secret@localhost/mydb',
-    ];
-    $conn = \Doctrine\DBAL\DriverManager::getConnection($connectionParams);
+    $dsnParser = new DsnParser();
+    $connectionParams = $dsnParser
+        ->parse('mysqli://user:secret@localhost/mydb');
+
+    $conn = DriverManager::getConnection($connectionParams);
 
 The ``DriverManager`` returns an instance of
 ``Doctrine\DBAL\Connection`` which is a wrapper around the
@@ -42,32 +49,20 @@ Connecting using a URL
 ~~~~~~~~~~~~~~~~~~~~~~
 
 The easiest way to specify commonly used connection parameters is
-using a database URL. The scheme is used to specify a driver, the
+using a database URL or DSN. The scheme is used to specify a driver, the
 user and password in the URL encode user and password for the
 connection, followed by the host and port parts (the "authority").
 The path after the authority part represents the name of the
 database, sans the leading slash. Any query parameters are used as
 additional connection parameters.
 
-The scheme names representing the drivers are either the regular
-driver names (see below) with any underscores in their name replaced
-with a hyphen (to make them legal in URL scheme names), or one of the
-following simplified driver names that serve as aliases:
+The scheme names representing the drivers are the driver names
+with any underscores in their name replaced with a hyphen
+(to make them legal in URL scheme names).
 
--  ``db2``: alias for ``ibm_db2``
--  ``mssql``: alias for ``pdo_sqlsrv``
--  ``mysql``/``mysql2``: alias for ``pdo_mysql``
--  ``pgsql``/``postgres``/``postgresql``: alias for ``pdo_pgsql``
--  ``sqlite``/``sqlite3``: alias for ``pdo_sqlite``
-
-For example, to connect to a "foo" MySQL DB using the ``pdo_mysql``
+For example, to connect to a "foo" MySQL database using the ``pdo_mysql``
 driver on localhost port 4486 with the "charset" option set to ``utf8mb4``,
 you would use the following URL::
-
-    mysql://localhost:4486/foo?charset=utf8mb4
-
-This is identical to the following connection string using the
-full driver name::
 
     pdo-mysql://localhost:4486/foo?charset=utf8mb4
 
@@ -79,43 +74,71 @@ URL is obviously irrelevant and thus can be omitted. The path part
 of the URL is, like for all other drivers, stripped of its leading
 slash, resulting in a relative file name for the database::
 
-    sqlite:///somedb.sqlite
+    pdo-sqlite:///somedb.sqlite
 
 This would access ``somedb.sqlite`` in the current working directory
 and is identical to the following::
 
-    sqlite://ignored:ignored@ignored:1234/somedb.sqlite
+    pdo-sqlite://ignored:ignored@ignored:1234/somedb.sqlite
 
 To specify an absolute file path, e.g. ``/usr/local/var/db.sqlite``,
 simply use that as the database name, which results in two leading
 slashes for the path part of the URL, and four slashes in total after
 the URL scheme name and its following colon::
 
-    sqlite:////usr/local/var/db.sqlite
+    pdo-sqlite:////usr/local/var/db.sqlite
 
 Which is, again, identical to supplying ignored user/pass/authority::
 
-    sqlite://notused:inthis@case//usr/local/var/db.sqlite
+    pdo-sqlite://notused:inthis@case//usr/local/var/db.sqlite
 
 To connect to an in-memory SQLite instance, use ``:memory:`` as the
 database name::
 
-    sqlite:///:memory:
+    pdo-sqlite:///:memory:
 
-.. note::
+Using the DSN parser
+^^^^^^^^^^^^^^^^^^^^
 
-    Any information extracted from the URL overwrites existing values
-    for the parameter in question, but the rest of the information
-    is merged together. You could, for example, have a URL without
-    the ``charset`` setting in the query string, and then add a
-    ``charset`` connection parameter next to ``url``, to provide a
-    default value in case the URL doesn't contain a charset value.
+By default, the URL scheme of the parsed DSN has to match one of DBAL's driver
+names. However, it might be that you have to deal with connection strings where
+you don't have control over the used scheme, e.g. in a PaaS environment. In
+order to make the parser understand which driver to use e.g. for ``mysql://``
+DSNs, you can configure the parser with a mapping table:
+
+.. code-block:: php
+
+    <?php
+    use Doctrine\DBAL\Tools\DsnParser;
+
+    //..
+    $dsnParser = new DsnParser(['mysql' => 'mysqli', 'postgres' => 'pdo_pgsql']);
+    $connectionParams = $dsnParser
+        ->parse('mysql://user:secret@localhost/mydb');
+
+The DSN parser returns the connection params back to you so you can add or
+modify individual parameters before passing the params to the
+``DriverManager``. For example, you can add a database name if its missing in
+the DSN or hardcode one if the DSN is not allowed to configure the database
+name.
+
+.. code-block:: php
+
+    <?php
+    use Doctrine\DBAL\DriverManager;
+    use Doctrine\DBAL\Tools\DsnParser;
+
+    //..
+    $connectionParams = $dsnParser->parse($myDsn);
+    $connectionParams['dbname'] ??= 'default_db';
+
+    $conn = DriverManager::getConnection($connectionParams);
 
 Driver
 ~~~~~~
 
 The driver specifies the actual implementations of the DBAL
-interfaces to use. It can be configured in one of three ways:
+interfaces to use. It can be configured in one of two ways:
 
 -  ``driver``: The built-in driver implementation to use. The
    following drivers are currently available:
@@ -125,14 +148,17 @@ interfaces to use. It can be configured in one of three ways:
    -  ``mysqli``: A MySQL driver that uses the mysqli extension.
    -  ``pdo_sqlite``: An SQLite driver that uses the pdo_sqlite PDO
       extension.
+   -  ``sqlite3``: An SQLite driver that uses the sqlite3 extension.
    -  ``pdo_pgsql``: A PostgreSQL driver that uses the pdo_pgsql PDO
       extension.
+   -  ``pgsql``: A PostgreSQL driver that uses the pgsql extension.
    -  ``pdo_oci``: An Oracle driver that uses the pdo_oci PDO
       extension.
       **Note that this driver caused problems in our tests. Prefer the oci8 driver if possible.**
    -  ``pdo_sqlsrv``: A Microsoft SQL Server driver that uses pdo_sqlsrv PDO
    -  ``sqlsrv``: A Microsoft SQL Server driver that uses the sqlsrv PHP extension.
    -  ``oci8``: An Oracle driver that uses the oci8 PHP extension.
+   -  ``ibm_db2``: An IBM DB2 driver that uses the ibm_db2 PHP extension.
 
 -  ``driverClass``: Specifies a custom driver implementation if no
    'driver' is specified. This allows the use of custom drivers that
@@ -166,6 +192,14 @@ pdo_sqlite
 -  ``memory`` (boolean): True if the SQLite database should be
    in-memory (non-persistent). Mutually exclusive with ``path``.
    ``path`` takes precedence.
+
+sqlite3
+^^^^^^^
+
+-  ``path`` (string): The filesystem path to the database file.
+   Mutually exclusive with ``memory``.
+-  ``memory`` (boolean): True if the SQLite database should be
+   in-memory (non-persistent). Mutually exclusive with ``path``.
 
 pdo_mysql
 ^^^^^^^^^
@@ -203,8 +237,8 @@ mysqli
 -  ``ssl_cipher`` (string): A list of allowable ciphers to use for SSL encryption.
 -  ``driverOptions`` Any supported flags for mysqli found on `http://www.php.net/manual/en/mysqli.real-connect.php`
 
-pdo_pgsql
-^^^^^^^^^
+pdo_pgsql / pgsql
+^^^^^^^^^^^^^^^^^
 
 -  ``user`` (string): Username to use when connecting to the
    database.
@@ -215,8 +249,6 @@ pdo_pgsql
 -  ``dbname`` (string): Name of the database/schema to connect to.
 -  ``charset`` (string): The charset used when connecting to the
    database.
--  ``default_dbname`` (string): Override the default database (postgres)
-   to connect to.
 -  ``sslmode`` (string): Determines whether or with what priority
    a SSL TCP/IP connection will be negotiated with the server.
    See the list of available modes:
@@ -285,50 +317,90 @@ pdo_sqlsrv / sqlsrv
 -  ``port`` (integer): Port of the database to connect to.
 -  ``dbname`` (string): Name of the database/schema to connect to.
 
+ibm_db2
+^^^^^^^
+
+-  ``dbname`` (string): Name of the database/schema to connect to or a complete connection string in
+   the format "DATABASE=dbname;HOSTNAME=host;PORT=port;PROTOCOL=TCPIP;UID=user;PWD=password;".
+-  ``user`` (string): Username to use when connecting to the database.
+-  ``password`` (string): Password to use when connecting to the database.
+-  ``host`` (string): Hostname of the database to connect to.
+-  ``port`` (integer): Port of the database to connect to.
+-  ``persistent`` (boolean): Whether to establish a persistent connection.
+-  ``driverOptions`` (array): Any supported options found on `https://www.php.net/manual/en/function.db2-connect.php#refsect1-function.db2-connect-parameters`
+
 Automatic platform version detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Doctrine ships with different database platform implementations for some vendors
 to support version specific features, dialect and behaviour.
-As of Doctrine DBAL 2.5 the appropriate platform implementation for the underlying
-database server version can be detected at runtime automatically for nearly all drivers.
-Before 2.5 you had to configure Doctrine to use a certain platform implementation
-explicitly with the ``platform`` connection parameter (see section below).
-Otherwise Doctrine always used a default platform implementation. For example if
-your application was backed by a SQL Server 2012 database, Doctrine would still use
-the SQL Server 2008 platform implementation as it is the default, unless you told
-Doctrine explicitly to use the SQL Server 2012 implementation.
 
-The following drivers support automatic database platform detection out of the box
-without any extra configuration required:
+The drivers will automatically detect the platform version and instantiate
+the corresponding platform class. However, this mechanism might cause the
+connection to be established prematurely.
 
--  ``pdo_mysql``
--  ``mysqli``
--  ``pdo_pgsql``
--  ``pdo_sqlsrv``
--  ``sqlsrv``
+You can also pass the ``serverVersion`` option if you want to disable automatic
+database platform detection and choose the platform version implementation explicitly.
 
-Some drivers cannot provide the version of the underlying database server without
-having to query for it explicitly.
+Please specify the full server version as the database server would report it.
+This is especially important for MySQL and MariaDB where the full version
+string is taken into account when determining the platform.
 
-If you still want to tell Doctrine which database server version you are using in
-order to choose the appropriate platform implementation, you can pass the
-``serverVersion`` option with a vendor specific version string that matches the
-database server version you are using.
-You can also pass this option if you want to disable automatic database platform
-detection for a driver that natively supports it and choose the platform version
-implementation explicitly.
+MySQL
+^^^^^
 
-If you are running a MariaDB database, you should prefix the ``serverVersion``
-with ``mariadb-`` (ex: ``mariadb-10.2.12``).
+Connect to your MySQL server and run the ``SELECT VERSION()`` query::
 
-Custom Platform
-~~~~~~~~~~~~~~~
+    mysql> SELECT VERSION();
+    +-----------+
+    | VERSION() |
+    +-----------+
+    | 8.0.32    |
+    +-----------+
+    1 row in set (0.00 sec)
 
-Each built-in driver uses a default implementation of
-``Doctrine\DBAL\Platforms\AbstractPlatform``. If you wish to use a
-customized or custom implementation, you can pass a precreated
-instance in the ``platform`` option.
+In the example above, ``8.0.32`` is the correct value for ``serverVersion``.
+
+MariaDB
+^^^^^^^
+
+Connect to your MariaDB server and run the ``SELECT VERSION()`` query::
+
+    MariaDB [(none)]> SELECT VERSION();
+    +-----------------------------------------+
+    | VERSION()                               |
+    +-----------------------------------------+
+    | 10.11.2-MariaDB-1:10.11.2+maria~ubu2204 |
+    +-----------------------------------------+
+    1 row in set (0.001 sec)
+
+In the example above, ``10.11.2-MariaDB-1:10.11.2+maria~ubu2204`` is the
+correct value for ``serverVersion``.
+
+Postgres
+^^^^^^^^
+
+Connect to your Postgres server and run the ``SHOW server_version`` query::
+
+    postgres=# SHOW server_version;
+             server_version
+    --------------------------------
+     15.2 (Debian 15.2-1.pgdg110+1)
+    (1 row)
+
+In the example above, ``15.2 (Debian 15.2-1.pgdg110+1)`` is the correct value for
+``server Version``.
+
+Other Platforms
+^^^^^^^^^^^^^^^
+
+For other platforms, DBAL currently does not implement version-specific
+platform detection, so specifying the ``serverVersion`` parameter has no effect.
+
+However, you can still do so. You can use the string that the following
+expression returns::
+
+    $connection->getWrappedConnection()->getServerVersion();
 
 Custom Driver Options
 ~~~~~~~~~~~~~~~~~~~~~

@@ -21,6 +21,9 @@ use Doctrine\DBAL\Logging\DebugStack;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Result;
+use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Schema\SchemaManagerFactory;
+use Doctrine\DBAL\Schema\SqliteSchemaManager;
 use Doctrine\DBAL\VersionAwarePlatformDriver;
 use Doctrine\Deprecations\PHPUnit\VerifyDeprecations;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -36,22 +39,21 @@ class ConnectionTest extends TestCase
 
     private Connection $connection;
 
-    /** @var array{wrapperClass?: class-string<Connection>} */
-    protected array $params = [
+    private const CONNECTION_PARAMS = [
         'driver' => 'pdo_mysql',
         'host' => 'localhost',
         'user' => 'root',
         'password' => 'password',
-        'port' => '1234',
+        'port' => 1234,
     ];
 
     protected function setUp(): void
     {
-        $this->connection = DriverManager::getConnection($this->params);
+        $this->connection = DriverManager::getConnection(self::CONNECTION_PARAMS);
     }
 
     /** @return Connection&MockObject */
-    private function getExecuteStatementMockConnection()
+    private function getExecuteStatementMockConnection(): Connection
     {
         $driverMock = $this->createMock(Driver::class);
 
@@ -267,7 +269,7 @@ class ConnectionTest extends TestCase
             ->method('getDatabasePlatform')
             ->willReturn($platform);
 
-        $connection = new Connection($this->params, $driver, null, $eventManager);
+        $connection = new Connection(self::CONNECTION_PARAMS, $driver, null, $eventManager);
         $connection->getDatabasePlatform();
     }
 
@@ -737,6 +739,50 @@ class ConnectionTest extends TestCase
         self::assertSame($platformMock, $connection->getDatabasePlatform());
     }
 
+    public function testPlatformDetectionFetchedFromParameters(): void
+    {
+        $driverMock = $this->createMock(VersionAwarePlatformDriver::class);
+
+        $driverConnectionMock = $this->createMock(ServerInfoAwareConnection::class);
+
+        $platformMock = $this->getMockForAbstractClass(AbstractPlatform::class);
+
+        $connection = new Connection(['serverVersion' => '8.0'], $driverMock);
+
+        $driverMock->expects(self::never())
+            ->method('connect')
+            ->willReturn($driverConnectionMock);
+
+        $driverMock->expects(self::once())
+            ->method('createDatabasePlatformForVersion')
+            ->with('8.0')
+            ->willReturn($platformMock);
+
+        self::assertSame($platformMock, $connection->getDatabasePlatform());
+    }
+
+    public function testPlatformDetectionFetchedFromPrimaryReplicaParameters(): void
+    {
+        $driverMock = $this->createMock(VersionAwarePlatformDriver::class);
+
+        $driverConnectionMock = $this->createMock(ServerInfoAwareConnection::class);
+
+        $platformMock = $this->getMockForAbstractClass(AbstractPlatform::class);
+
+        $connection = new Connection(['primary' => ['serverVersion' => '8.0']], $driverMock);
+
+        $driverMock->expects(self::never())
+            ->method('connect')
+            ->willReturn($driverConnectionMock);
+
+        $driverMock->expects(self::once())
+            ->method('createDatabasePlatformForVersion')
+            ->with('8.0')
+            ->willReturn($platformMock);
+
+        self::assertSame($platformMock, $connection->getDatabasePlatform());
+    }
+
     public function testConnectionParamsArePassedToTheQueryCacheProfileInExecuteCacheQuery(): void
     {
         $cacheItemMock = $this->createMock(CacheItemInterface::class);
@@ -761,16 +807,20 @@ class ConnectionTest extends TestCase
             ->method('getResultCache')
             ->willReturn($resultCacheMock);
 
+        $expectedConnectionParams = self::CONNECTION_PARAMS;
+        unset($expectedConnectionParams['password']);
+
         // This is our main expectation
         $queryCacheProfileMock
             ->expects(self::once())
             ->method('generateCacheKeys')
-            ->with($query, $params, $types, $this->params)
+            ->with($query, $params, $types, $expectedConnectionParams)
             ->willReturn(['cacheKey', 'realKey']);
 
         $driver = $this->createMock(Driver::class);
 
-        (new Connection($this->params, $driver))->executeCacheQuery($query, $params, $types, $queryCacheProfileMock);
+        (new Connection(self::CONNECTION_PARAMS, $driver))
+            ->executeCacheQuery($query, $params, $types, $queryCacheProfileMock);
     }
 
     public function testShouldNotPassPlatformInParamsToTheQueryCacheProfileInExecuteCacheQuery(): void
@@ -795,12 +845,13 @@ class ConnectionTest extends TestCase
 
         $query = 'SELECT 1';
 
-        $connectionParams = $this->params;
+        $expectedConnectionParams = $connectionParams = self::CONNECTION_PARAMS;
+        unset($expectedConnectionParams['password']);
 
         $queryCacheProfileMock
             ->expects(self::once())
             ->method('generateCacheKeys')
-            ->with($query, [], [], $connectionParams)
+            ->with($query, [], [], $expectedConnectionParams)
             ->willReturn(['cacheKey', 'realKey']);
 
         $connectionParams['platform'] = $this->createMock(AbstractPlatform::class);
@@ -813,7 +864,7 @@ class ConnectionTest extends TestCase
     /** @psalm-suppress InvalidArgument */
     public function testThrowsExceptionWhenInValidPlatformSpecified(): void
     {
-        $connectionParams             = $this->params;
+        $connectionParams             = self::CONNECTION_PARAMS;
         $connectionParams['platform'] = new stdClass();
 
         $driver = $this->createMock(Driver::class);
@@ -887,6 +938,29 @@ class ConnectionTest extends TestCase
         self::assertSame($params, $connection->getParams());
 
         $connection->executeCacheQuery($query, [], [], $queryCacheProfile);
+    }
+
+    public function testCustomSchemaManagerFactory(): void
+    {
+        $schemaManager = $this->createStub(AbstractSchemaManager::class);
+        $factory       = $this->createMock(SchemaManagerFactory::class);
+        $factory->expects(self::once())->method('createSchemaManager')->willReturn($schemaManager);
+
+        $configuration = new Configuration();
+        $configuration->setSchemaManagerFactory($factory);
+
+        $this->expectNoDeprecationWithIdentifier('https://github.com/doctrine/dbal/issues/5812');
+
+        $connection = DriverManager::getConnection(['driver' => 'sqlite3', 'memory' => true], $configuration);
+        self::assertSame($schemaManager, $connection->createSchemaManager());
+    }
+
+    public function testLegacySchemaManagerFactory(): void
+    {
+        $this->expectDeprecationWithIdentifier('https://github.com/doctrine/dbal/issues/5812');
+
+        $connection = DriverManager::getConnection(['driver' => 'sqlite3', 'memory' => true]);
+        self::assertInstanceOf(SqliteSchemaManager::class, $connection->createSchemaManager());
     }
 }
 

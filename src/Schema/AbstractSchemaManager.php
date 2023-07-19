@@ -442,7 +442,7 @@ abstract class AbstractSchemaManager
      */
     public function listTableDetails($name)
     {
-        Deprecation::trigger(
+        Deprecation::triggerIfCalledFromOutside(
             'doctrine/dbal',
             'https://github.com/doctrine/dbal/pull/5595',
             '%s is deprecated. Use introspectTable() instead.',
@@ -1213,7 +1213,7 @@ abstract class AbstractSchemaManager
      */
     public function alterSchema(SchemaDiff $schemaDiff): void
     {
-        $this->_execSql($schemaDiff->toSql($this->_platform));
+        $this->_execSql($this->_platform->getAlterSchemaSQL($schemaDiff));
     }
 
     /**
@@ -1390,6 +1390,13 @@ abstract class AbstractSchemaManager
             $defaultPrevented = false;
 
             if ($eventManager !== null && $eventManager->hasListeners(Events::onSchemaColumnDefinition)) {
+                Deprecation::trigger(
+                    'doctrine/dbal',
+                    'https://github.com/doctrine/dbal/issues/5784',
+                    'Subscribing to %s events is deprecated. Use a custom schema manager instead.',
+                    Events::onSchemaColumnDefinition,
+                );
+
                 $eventArgs = new SchemaColumnDefinitionEventArgs($tableColumn, $table, $database, $this->_conn);
                 $eventManager->dispatchEvent(Events::onSchemaColumnDefinition, $eventArgs);
 
@@ -1475,6 +1482,13 @@ abstract class AbstractSchemaManager
             $defaultPrevented = false;
 
             if ($eventManager !== null && $eventManager->hasListeners(Events::onSchemaIndexDefinition)) {
+                Deprecation::trigger(
+                    'doctrine/dbal',
+                    'https://github.com/doctrine/dbal/issues/5784',
+                    'Subscribing to %s events is deprecated. Use a custom schema manager instead.',
+                    Events::onSchemaColumnDefinition,
+                );
+
                 $eventArgs = new SchemaIndexDefinitionEventArgs($data, $tableName, $this->_conn);
                 $eventManager->dispatchEvent(Events::onSchemaIndexDefinition, $eventArgs);
 

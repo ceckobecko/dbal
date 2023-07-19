@@ -286,24 +286,6 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
         self::assertEquals('SELECT * FROM user LIMIT -1 OFFSET 10', $sql);
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public function getGenerateAlterTableSql(): array
-    {
-        return [
-            'CREATE TEMPORARY TABLE __temp__mytable AS SELECT id, bar, bloo FROM mytable',
-            'DROP TABLE mytable',
-            'CREATE TABLE mytable (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, '
-                . "baz VARCHAR(255) DEFAULT 'def' NOT NULL, "
-                . 'bloo BOOLEAN DEFAULT 0 NOT NULL, '
-                . 'quota INTEGER DEFAULT NULL)',
-            'INSERT INTO mytable (id, baz, bloo) SELECT id, bar, bloo FROM __temp__mytable',
-            'DROP TABLE __temp__mytable',
-            'ALTER TABLE mytable RENAME TO userlist',
-        ];
-    }
-
     public function testGenerateTableSqlShouldNotAutoQuotePrimaryKey(): void
     {
         $table = new Table('test');
@@ -420,7 +402,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
         $diff->newName                  = 'client';
         $diff->renamedColumns['id']     = new Column('key', Type::getType('integer'), []);
         $diff->renamedColumns['post']   = new Column('comment', Type::getType('integer'), []);
-        $diff->removedColumns['parent'] = new Column('comment', Type::getType('integer'), []);
+        $diff->removedColumns['parent'] = new Column('parent', Type::getType('integer'), []);
         $diff->removedIndexes['index1'] = $table->getIndex('index1');
 
         $sql = [
@@ -545,7 +527,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getQuotedAlterTableRenameColumnSQL(): array
     {
@@ -571,7 +553,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getQuotedAlterTableChangeColumnLengthSQL(): array
     {
@@ -614,7 +596,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function getAlterTableRenameColumnSQL(): array
     {
@@ -629,27 +611,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
-     */
-    protected function getQuotesTableIdentifiersInAlterTableSQL(): array
-    {
-        return [
-            'CREATE TEMPORARY TABLE __temp__foo AS SELECT fk, fk2, id, fk3, bar FROM "foo"',
-            'DROP TABLE "foo"',
-            'CREATE TABLE "foo" (fk2 INTEGER NOT NULL, fk3 INTEGER NOT NULL, fk INTEGER NOT NULL, ' .
-            'war INTEGER NOT NULL, bar INTEGER DEFAULT NULL, bloo INTEGER NOT NULL, ' .
-            'CONSTRAINT fk2 FOREIGN KEY (fk2) REFERENCES fk_table2 (id) NOT DEFERRABLE INITIALLY IMMEDIATE, ' .
-            'CONSTRAINT fk_add FOREIGN KEY (fk3) REFERENCES fk_table (id) NOT DEFERRABLE INITIALLY IMMEDIATE)',
-            'INSERT INTO "foo" (fk, fk2, war, fk3, bar) SELECT fk, fk2, id, fk3, bar FROM __temp__foo',
-            'DROP TABLE __temp__foo',
-            'ALTER TABLE "foo" RENAME TO "table"',
-            'CREATE INDEX IDX_8C736521A81E660E ON "table" (fk)',
-            'CREATE INDEX IDX_8C736521FDC58D6C ON "table" (fk2)',
-        ];
-    }
-
-    /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getCommentOnColumnSQL(): array
     {
@@ -696,7 +658,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getAlterStringToFixedStringSQL(): array
     {
@@ -710,7 +672,7 @@ class SqlitePlatformTest extends AbstractPlatformTestCase
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function getGeneratesAlterTableRenameIndexUsedByForeignKeySQL(): array
     {

@@ -6,7 +6,220 @@ awareness about deprecated code.
 - Use of our low-overhead runtime deprecation API, details:
   https://github.com/doctrine/deprecations/
 
+# Upgrade to 3.6
+
+## Deprecated not setting a schema manager factory
+
+DBAL 4 will change the way the schema manager is created. To opt in to the new
+behavior, please configure the schema manager factory:
+
+```php
+$configuration = new Configuration();
+$configuration->setSchemaManagerFactory(new DefaultSchemaManagerFactory());
+
+$connection = DriverManager::getConnection(
+    [/* your parameters */],
+    $configuration,
+);
+```
+
+If you use a custom platform implementation, please make sure it implements
+the `createSchemaManager()`method . Otherwise, the connection will fail to
+create a schema manager.
+
+## Deprecated the `url` connection parameter
+
+DBAL ships with a new and configurable DSN parser that can be used to parse a
+database URL into connection parameters understood by `DriverManager`.
+
+### Before
+
+```php
+$connection = DriverManager::getConnection(
+    ['url' => 'mysql://my-user:t0ps3cr3t@my-host/my-database']
+);
+```
+
+### After
+
+```php
+$dsnParser  = new DsnParser(['mysql' => 'pdo_mysql']);
+$connection = DriverManager::getConnection(
+    $dsnParser->parse('mysql://my-user:t0ps3cr3t@my-host/my-database')
+);
+```
+
+## Deprecated `Connection::PARAM_*_ARRAY` constants
+
+Use the corresponding constants on `ArrayParameterType` instead. Please be aware that
+`ArrayParameterType` will be a native enum type in DBAL 4.
+
 # Upgrade to 3.5
+
+## Deprecated extension via Doctrine Event Manager
+
+Extension of the library behavior via Doctrine Event Manager has been deprecated.
+
+The following methods and properties have been deprecated:
+- `AbstractPlatform::$_eventManager`,
+- `AbstractPlatform::getEventManager()`,
+- `AbstractPlatform::setEventManager()`,
+- `Connection::$_eventManager`,
+- `Connection::getEventManager()`.
+
+## Deprecated extension via connection events
+
+Subscription to the `postConnect` event has been deprecated. Use one of the following replacements for the standard
+event listeners or implement a custom middleware instead.
+
+The following `postConnect` event listeners have been deprecated:
+1. `OracleSessionInit`. Use `Doctrine\DBAL\Driver\OCI8\Middleware\InitializeSession`.
+2. `SQLiteSessionInit`. Use `Doctrine\DBAL\Driver\AbstractSQLiteDriver\Middleware\EnableForeignKeys`.
+3. `SQLSessionInit`. Implement a custom middleware.
+
+## Deprecated extension via transaction events
+
+Subscription to the following events has been deprecated:
+- `onTransactionBegin`,
+- `onTransactionCommit`,
+- `onTransactionRollBack`.
+
+The upgrade path will depend on the use case:
+1. If you need to extend the behavior of only the actual top-level transactions (not the ones emulated via savepoints),
+   implement a driver middleware.
+2. If you need to extend the behavior of the top-level and nested transactions, either implement a driver middleware
+   or implement a custom wrapper connection.
+
+## Deprecated extension via schema definition events
+
+Subscription to the following events has been deprecated:
+- `onSchemaColumnDefinition`,
+- `onSchemaIndexDefinition`.
+
+Use a custom schema manager instead.
+
+## Deprecated extension via schema manipulation events
+
+Subscription to the following events has been deprecated:
+- `onSchemaCreateTable`,
+- `onSchemaCreateTableColumn`,
+- `onSchemaDropTable`,
+- `onSchemaAlterTable`,
+- `onSchemaAlterTableAddColumn`,
+- `onSchemaAlterTableRemoveColumn`,
+- `onSchemaAlterTableChangeColumn`,
+- `onSchemaAlterTableRenameColumn`.
+
+The upgrade path will depend on the use case:
+1. If you are using the events to modify the behavior of the platform, you should extend the platform class
+   and implement the corresponding logic in the sub-class.
+2. If you are using the events to modify the arguments processed by the platform (e.g. modify the table definition
+   before the platform generates the `CREATE TABLE` DDL), you should do the needed modifications before calling
+   the corresponding platform or schema manager method.
+
+## Deprecated the emulation of the `LOCATE()` function for SQLite
+
+Relying on the availability of the `LOCATE()` on SQLite deprecated. SQLite does not provide that function natively,
+but the function `INSTR()` can be a drop-in replacement in most situations. Use
+`AbstractPlatform::getLocateExpression()` if you need a portable solution.
+
+## Deprecated `SchemaDiff::toSql()` and `SchemaDiff::toSaveSql()`
+
+Using `SchemaDiff::toSql()` to generate SQL representing the diff has been deprecated.
+Use `AbstractPlatform::getAlterSchemaSQL()` instead.
+
+`SchemaDiff::toSaveSql()` has been deprecated without a replacement.
+
+## Deprecated `SchemaDiff::$orphanedForeignKeys`
+
+Relying on the schema diff tracking foreign keys referencing the tables that have been dropped is deprecated.
+Before dropping a table referenced by foreign keys, drop the foreign keys first.
+
+## Deprecated the `userDefinedFunctions` driver option for `pdo_sqlite`
+
+Instead of funneling custom functions through the `userDefinedFunctions` option, use `getNativeConnection()`
+to access the wrapped PDO connection and register your custom functions directly.
+
+### Before
+
+```php
+$connection = DriverManager::getConnection([
+    'driver' => 'pdo_sqlite',
+    'path' => '/path/to/file.db',
+    'driverOptions' => [
+        'userDefinedFunctions' => [
+            'my_function' => ['callback' => [SomeClass::class, 'someMethod'], 'numArgs' => 2],
+        ],
+    ]
+]);
+```
+
+### After
+
+```php
+$connection = DriverManager::getConnection([
+    'driver' => 'pdo_sqlite',
+    'path' => '/path/to/file.db',
+]);
+
+$connection->getNativeConnection()
+    ->sqliteCreateFunction('my_function', [SomeClass::class, 'someMethod'], 2);
+```
+
+## Deprecated `Table` methods.
+
+The `hasPrimaryKey()` method has been deprecated. Use `getPrimaryKey()` and check if the return value is not null.
+The `getPrimaryKeyColumns()` method has been deprecated. Use `getPrimaryKey()` and `Index::getColumns()` instead.
+The `getForeignKeyColumns()` method has been deprecated. Use `getForeignKey()`
+and `ForeignKeyConstraint::getLocalColumns()` instead.
+The `changeColumn()` method has been deprecated. Use `modifyColumn()` instead.
+
+## Deprecated `SchemaException` error codes.
+
+Relying on the error code of `SchemaException` is deprecated. In order to handle a specific type of exception,
+catch the corresponding exception class instead.
+
+| Error Code                  | Class                          |
+|-----------------------------|--------------------------------|
+| `TABLE_DOESNT_EXIST`        | `TableDoesNotExist`            |
+| `TABLE_ALREADY_EXISTS`      | `TableAlreadyExists`           |
+| `COLUMN_DOESNT_EXIST`       | `ColumnDoesNotExist`           |
+| `COLUMN_ALREADY_EXISTS`     | `ColumnAlreadyExists`          |
+| `INDEX_DOESNT_EXIST`        | `IndexDoesNotExist`            |
+| `INDEX_ALREADY_EXISTS`      | `IndexAlreadyExists`           |
+| `SEQUENCE_DOENST_EXIST`     | `SequenceDoesNotExist`         |
+| `SEQUENCE_ALREADY_EXISTS`   | `SequenceAlreadyExists`        |
+| `FOREIGNKEY_DOESNT_EXIST`   | `ForeignKeyDoesNotExist`       |
+| `CONSTRAINT_DOESNT_EXIST`   | `UniqueConstraintDoesNotExist` |
+| `NAMESPACE_ALREADY_EXISTS`  | `NamespaceAlreadyExists`       |
+
+## Deprecated fallback connection used to determine the database platform.
+
+Relying on a fallback connection used to determine the database platform while connecting to a non-existing database
+has been deprecated. Either use an existing database name in connection parameters or omit the database name
+if the platform and the server configuration allow that.
+
+## Deprecated misspelled isFullfilledBy() method
+
+This method's name was spelled incorrectly. Use `isFulfilledBy` instead.
+
+## Deprecated default PostgreSQL connection database.
+
+Relying on the DBAL connecting to the "postgres" database by default is deprecated. Unless you want to have the server
+determine the default database for the connection, specify the database name explicitly.
+
+## Deprecated the "default_dbname" parameter of the wrapper `Connection`.
+
+The "default_dbname" parameter of the wrapper `Connection` has been deprecated. Use "dbname" instead.
+
+## Deprecated the "platform" parameter of the wrapper `Connection`.
+
+The "platform" parameter of the wrapper `Connection` has been deprecated. Use a driver middleware that would instantiate
+the platform instead.
+
+## Deprecated driver name aliases.
+
+Relying on driver name aliases in connection parameters has been deprecated. Use the actual driver names instead.
 
 ## Deprecated "unique" and "check" column properties.
 
@@ -17,9 +230,39 @@ The "unique" and "check" column properties have been deprecated. Use unique cons
 Relying on the default precision and scale of decimal columns provided by the DBAL is deprecated.
 When declaring decimal columns, specify the precision and scale explicitly.
 
-## Deprecated not passing `$fromColumn` to the `TableDiff` constructor.
+## Deprecated `Comparator::diffTable()` method.
 
-Not passing `$fromColumn` to the `TableDiff` constructor has been deprecated.
+The `Comparator::diffTable()` method has been deprecated in favor of `Comparator::compareTables()`
+and `TableDiff::isEmpty()`.
+
+Instead of having to check whether the diff is equal to the boolean `false`, you can optionally check
+if the returned table diff is empty.
+
+### Before
+
+```php
+$diff = $comparator->diffTable($oldTable, $newTable);
+
+// mandatory check
+if ($diff !== false) {
+    // we have a diff
+}
+```
+
+### After
+
+```php
+$diff = $comparator->compareTables($oldTable, $newTable);
+
+// optional check
+if (! $diff->isEmpty()) {
+    // we have a diff
+}
+```
+
+## Deprecated not passing `$fromTable` to the `TableDiff` constructor.
+
+Not passing `$fromTable` to the `TableDiff` constructor has been deprecated.
 
 The `TableDiff::$name` property and the `TableDiff::getName()` method have been deprecated as well. In order to obtain
 the name of the table that the diff describes, use `TableDiff::getOldTable()`.
@@ -41,6 +284,41 @@ The following `Comparator` methods have been marked as internal:
 - `diffIndex()`.
 
 The `diffColumn()` method has been deprecated. Use `diffTable()` instead.
+
+## Marked `SchemaDiff` public properties as internal.
+
+The public properties of the `SchemaDiff` class have been marked as internal. Use the following corresponding methods
+instead:
+
+| Property             | Method                  |
+|----------------------|-------------------------|
+| `$newNamespaces`     | `getCreatedSchemas()`   |
+| `$removedNamespaces` | `getDroppedSchemas()`   |
+| `$newTables`         | `getCreatedTables()`    |
+| `$changedTables`     | `getAlteredTables()`    |
+| `$removedTables`     | `getDroppedTables()`    |
+| `$newSequences`      | `getCreatedSequences()` |
+| `$changedSequences`  | `getAlteredSequence()`  |
+| `$removedSequences`  | `getDroppedSequences()` |
+
+## Marked `TableDiff` public properties as internal.
+
+The public properties of the `TableDiff` class have been marked as internal. Use the following corresponding methods
+instead:
+
+| Property               | Method                     |
+|------------------------|----------------------------|
+| `$addedColumns`        | `getAddedColumns()`        |
+| `$changedColumns`      | `getModifiedColumns()`     |
+| `$removedColumns`      | `getDroppedColumns()`      |
+| `$renamedColumns`      | `getRenamedColumns()`      |
+| `$addedIndexes`        | `getAddedIndexes()`        |
+| `$changedIndexes`      | `getModifiedIndexes()`     |
+| `$removedIndexes`      | `getDroppedIndexes()`      |
+| `$renamedIndexes`      | `getRenamedIndexes()`      |
+| `$addedForeignKeys`    | `getAddedForeignKeys()`    |
+| `$changedForeignKeys`  | `getModifiedForeignKeys()` |
+| `$removedForeignKeys`  | `getDroppedForeignKeys()`  |
 
 ## Marked `ColumnDiff` public properties as internal.
 
@@ -124,6 +402,8 @@ Bind parameters using `Statement::bindParam()` or `Statement::bindValue()` inste
 1. The `QueryBuilder::getState()` method has been deprecated as the builder state is an internal concern.
 2. Relying on the type of the query being built by using `QueryBuilder::getType()` has been deprecated.
    If necessary, track the type of the query being built outside of the builder.
+3. The `QueryBuilder::getConnection()` method has been deprecated. Use the connection used to instantiate the builder
+   instead.
 
 The following `QueryBuilder` constants related to the above methods have been deprecated:
 
@@ -399,10 +679,12 @@ This method is unused by the DBAL since 2.0.
 
 ## Deprecated `Type::getName()`
 
-This will method is not useful for the DBAL anymore, and will be removed in 4.0.
+This method is not useful for the DBAL anymore, and will be removed in 4.0.
 As a consequence, depending on the name of a type being `json` for `jsonb` to
 be used for the Postgres platform is deprecated in favor of extending
 `Doctrine\DBAL\Types\JsonType`.
+
+You can use `Type::getTypeRegistry()->lookupName($type)` instead.
 
 ## Deprecated `AbstractPlatform::getColumnComment()`, `AbstractPlatform::getDoctrineTypeComment()`,
 `AbstractPlatform::hasNative*Type()` and `Type::requiresSQLCommentHint()`
@@ -722,7 +1004,7 @@ deprecated in order to provide a more consistent API.
 
 ## Deprecated `Comparator::compare($fromSchema, $toSchema)`
 
-The usage of `Comparator::compare($fromSchema, $toSchema)` is deprecated and 
+The usage of `Comparator::compare($fromSchema, $toSchema)` is deprecated and
 replaced by `Comparator::compareSchemas($fromSchema, $toSchema)` in order to
 clarify the purpose of the method.
 

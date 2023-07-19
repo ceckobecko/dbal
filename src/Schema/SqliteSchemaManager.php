@@ -107,7 +107,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @deprecated Delete the database file using the filesystem.
      */
@@ -127,7 +127,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @deprecated The engine will create the database file automatically.
      */
@@ -151,18 +151,19 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function createForeignKey(ForeignKeyConstraint $foreignKey, $table)
     {
-        $tableDiff                     = $this->getTableDiffForAlterForeignKey($table);
-        $tableDiff->addedForeignKeys[] = $foreignKey;
+        if (! $table instanceof Table) {
+            $table = $this->listTableDetails($table);
+        }
 
-        $this->alterTable($tableDiff);
+        $this->alterTable(new TableDiff($table->getName(), [], [], [], [], [], [], $table, [$foreignKey]));
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @deprecated Use {@see dropForeignKey()} and {@see createForeignKey()} instead.
      */
@@ -175,25 +176,27 @@ class SqliteSchemaManager extends AbstractSchemaManager
                 . ' Use SqliteSchemaManager::dropForeignKey() and SqliteSchemaManager::createForeignKey() instead.',
         );
 
-        $tableDiff                       = $this->getTableDiffForAlterForeignKey($table);
-        $tableDiff->changedForeignKeys[] = $foreignKey;
+        if (! $table instanceof Table) {
+            $table = $this->listTableDetails($table);
+        }
 
-        $this->alterTable($tableDiff);
+        $this->alterTable(new TableDiff($table->getName(), [], [], [], [], [], [], $table, [], [$foreignKey]));
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function dropForeignKey($foreignKey, $table)
     {
-        $tableDiff                       = $this->getTableDiffForAlterForeignKey($table);
-        $tableDiff->removedForeignKeys[] = $foreignKey;
+        if (! $table instanceof Table) {
+            $table = $this->listTableDetails($table);
+        }
 
-        $this->alterTable($tableDiff);
+        $this->alterTable(new TableDiff($table->getName(), [], [], [], [], [], [], $table, [], [], [$foreignKey]));
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     public function listTableForeignKeys($table, $database = null)
     {
@@ -210,7 +213,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function _getPortableTableDefinition($table)
     {
@@ -218,7 +221,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      *
      * @link http://ezcomponents.org/docs/api/trunk/DatabaseSchema/ezcDbSchemaPgsqlReader.html
      */
@@ -282,7 +285,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function _getPortableTableColumnList($table, $database, $tableColumns)
     {
@@ -349,7 +352,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function _getPortableTableColumnDefinition($tableColumn)
     {
@@ -428,7 +431,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function _getPortableViewDefinition($view)
     {
@@ -436,7 +439,7 @@ class SqliteSchemaManager extends AbstractSchemaManager
     }
 
     /**
-     * {@inheritdoc}
+     * {@inheritDoc}
      */
     protected function _getPortableTableForeignKeysList($tableForeignKeys)
     {
@@ -494,20 +497,6 @@ class SqliteSchemaManager extends AbstractSchemaManager
                 'deferred' => $tableForeignKey['deferred'],
             ],
         );
-    }
-
-    /**
-     * @param Table|string $table
-     *
-     * @throws Exception
-     */
-    private function getTableDiffForAlterForeignKey($table): TableDiff
-    {
-        if (! $table instanceof Table) {
-            $table = $this->listTableDetails($table);
-        }
-
-        return new TableDiff($table->getName(), [], [], [], [], [], [], $table);
     }
 
     private function parseColumnCollationFromSQL(string $column, string $sql): ?string
